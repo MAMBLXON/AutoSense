@@ -2,6 +2,9 @@ package com.mamblxon.autosense.domain.usecase
 
 import com.mamblxon.autosense.data.remote.CarRegulation
 import com.mamblxon.autosense.domain.model.ServiceItem
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 class ServiceUseCase {
@@ -236,9 +239,68 @@ class ServiceUseCase {
      */
     fun parseIntOrNull(input: String): Int? = input.trim().toIntOrNull()
 
+    /**
+     * Валидирует дату в формате ДД.ММ.ГГГГ. Пустая строка допустима (поле необязательное).
+     * Дата не может быть в будущем — «завтра сделать ТО» нельзя.
+     */
+    fun validateDateNotFuture(
+        input: String,
+        allowBlank: Boolean = true,
+        nowMillis: Long = System.currentTimeMillis()
+    ): ValidationResult {
+        val trimmed = input.trim()
+        if (trimmed.isEmpty()) {
+            return if (allowBlank) ValidationResult.Valid
+            else ValidationResult.Invalid("Введи дату в формате ДД.ММ.ГГГГ")
+        }
+        val date = parseDate(trimmed)
+            ?: return ValidationResult.Invalid("Формат даты: ДД.ММ.ГГГГ")
+        if (date.time > nowMillis) {
+            return ValidationResult.Invalid("Дата не может быть в будущем")
+        }
+        return ValidationResult.Valid
+    }
+
+    /**
+     * Строго разбирает ДД.ММ.ГГГГ (несуществующие даты вроде 31.02.2026 отклоняются).
+     * Возвращает null, если строка не является корректной датой.
+     */
+    fun parseDate(input: String): Date? {
+        val format = SimpleDateFormat("dd.MM.yyyy", Locale.US).apply {
+            isLenient = false
+        }
+        return runCatching { format.parse(input.trim()) }.getOrNull()
+    }
+
+    /** Валидирует стоимость: только число, больше нуля. Пустая строка допустима (необязательно). */
+    fun validateCost(input: String, allowBlank: Boolean = true): ValidationResult {
+        val trimmed = input.trim()
+        if (trimmed.isEmpty()) {
+            return if (allowBlank) ValidationResult.Valid
+            else ValidationResult.Invalid("Введи стоимость")
+        }
+        val cost = trimmed.toIntOrNull()
+            ?: return ValidationResult.Invalid("Стоимость должна быть числом")
+        if (cost <= 0) {
+            return ValidationResult.Invalid("Стоимость должна быть больше нуля")
+        }
+        if (cost > MAX_COST) {
+            return ValidationResult.Invalid("Слишком большая сумма (макс $MAX_COST)")
+        }
+        return ValidationResult.Valid
+    }
+
+    /** True, если хотя бы один из двух интервалов задан числом больше нуля. */
+    fun hasPositiveInterval(kmInput: String, monthsInput: String): Boolean {
+        val km = kmInput.trim().toIntOrNull() ?: 0
+        val months = monthsInput.trim().toIntOrNull() ?: 0
+        return km > 0 || months > 0
+    }
+
     companion object {
-        const val MAX_KM = 2_000_000
+        const val MAX_KM = 9_999_999
         const val MAX_MONTHS = 120
         const val MAX_NAME_LENGTH = 100
+        const val MAX_COST = 10_000_000
     }
 }

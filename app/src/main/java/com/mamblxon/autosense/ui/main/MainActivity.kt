@@ -132,7 +132,9 @@ class MainActivity : AppCompatActivity() {
         binding.recycler.isClickable = true
         binding.recycler.isFocusable = true
 
-        binding.fabUpdateKm.setOnClickListener { showUpdateKmDialog() }
+        binding.fabUpdateKm.setOnClickListener { showAddItemDialog() }
+
+        binding.emptyAddButton.setOnClickListener { showAddItemDialog() }
 
         binding.chipGroup.setOnCheckedStateChangeListener { _, checkedIds ->
             val filter = when (checkedIds.firstOrNull()) {
@@ -176,6 +178,22 @@ class MainActivity : AppCompatActivity() {
                 if (!firstListRendered && st.listItems.isNotEmpty() && !st.isLoading) {
                     firstListRendered = true
                     binding.recycler.scheduleLayoutAnimation()
+                }
+            }
+        }
+
+        // Одноразовые сообщения (ошибки БД, подтверждения) — Snackbar вместо краша/тишины.
+        lifecycleScope.launch {
+            viewModel.messages.collectLatest { msg ->
+                when (msg) {
+                    is UiMessage.Error -> AppDialogs.snackbarError(
+                        view = binding.root,
+                        text = msg.text
+                    )
+                    is UiMessage.Info -> AppDialogs.snackbarInfo(
+                        view = binding.root,
+                        text = msg.text
+                    )
                 }
             }
         }
@@ -328,16 +346,30 @@ class MainActivity : AppCompatActivity() {
             binding.emptyState.isVisible = true
             binding.recycler.isVisible = false
 
-            if (st.searchQuery.isNotBlank()) {
-                binding.emptyTitle.text = "Ничего не найдено"
-                binding.emptySubtitle.text = "По запросу \"${st.searchQuery}\""
-            } else {
-                binding.emptyTitle.text = "Ничего нет в этой категории"
-                binding.emptySubtitle.text = "Попробуй выбрать другой фильтр"
+            when {
+                // В базе нет ни одной записи — показываем заглушку с кнопкой добавления.
+                st.isDatabaseEmpty -> {
+                    binding.emptyTitle.text = "Пока нет записей"
+                    binding.emptySubtitle.text =
+                        "Добавь первую работу по обслуживанию автомобиля, " +
+                                "и здесь появится список ТО"
+                    binding.emptyAddButton.isVisible = true
+                }
+                st.searchQuery.isNotBlank() -> {
+                    binding.emptyTitle.text = "Ничего не найдено"
+                    binding.emptySubtitle.text = "По запросу \"${st.searchQuery}\""
+                    binding.emptyAddButton.isVisible = false
+                }
+                else -> {
+                    binding.emptyTitle.text = "Ничего нет в этой категории"
+                    binding.emptySubtitle.text = "Попробуй выбрать другой фильтр"
+                    binding.emptyAddButton.isVisible = false
+                }
             }
         } else {
             binding.emptyState.isVisible = false
             binding.recycler.isVisible = true
+            binding.emptyAddButton.isVisible = false
         }
     }
 
@@ -379,6 +411,23 @@ class MainActivity : AppCompatActivity() {
     // =========================================================
     // Диалоги
     // =========================================================
+
+    /**
+     * Единая точка «добавить запись»: открывается экран AddActivity
+     * (валидация полей, обработка ошибок БД — внутри него).
+     * Используется FAB и кнопкой на заглушке пустого списка.
+     */
+    private fun showAddItemDialog() {
+        try {
+            startActivity(Intent(this, com.mamblxon.autosense.ui.main.add.AddActivity::class.java))
+        } catch (t: Throwable) {
+            Log.e("AutoSense", "Failed to open AddActivity", t)
+            AppDialogs.snackbarError(
+                view = binding.root,
+                text = "Не удалось открыть экран добавления"
+            )
+        }
+    }
 
     private fun showMarkDoneDialog(item: ServiceItem) {
         AppDialogs.showMarkDoneDialog(
