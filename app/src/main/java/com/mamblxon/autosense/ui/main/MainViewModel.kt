@@ -1,6 +1,7 @@
 package com.mamblxon.autosense.ui.main
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.mamblxon.autosense.data.DefaultServiceRepository
@@ -9,10 +10,14 @@ import com.mamblxon.autosense.domain.usecase.ServiceUseCase
 import com.mamblxon.autosense.prefs.AppPrefs
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
@@ -27,6 +32,8 @@ import kotlinx.coroutines.sync.withLock
 data class ServiceUiState(
     val listItems: List<ServiceListItem> = emptyList(),
     val isEmpty: Boolean = false,
+    /** Список реально пуст (в базе нет ни одной записи) — показывать заглушку «Добавь первую запись». */
+    val isDatabaseEmpty: Boolean = false,
     val isLoading: Boolean = true,
     val error: String? = null,
     val currentCar: String = "",
@@ -64,6 +71,14 @@ sealed interface UiEvent {
     data class SetSearchQuery(val query: String) : UiEvent
 }
 
+/** Одноразовые сообщения для UI (Snackbar). */
+sealed interface UiMessage {
+    val text: String
+
+    data class Error(override val text: String) : UiMessage
+    data class Info(override val text: String) : UiMessage
+}
+
 class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val repo = DefaultServiceRepository.get(app)
@@ -75,6 +90,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val errorFlow = MutableStateFlow<String?>(null)
     private val loadingFlow = MutableStateFlow(true)
     private val searchQueryFlow = MutableStateFlow("")
+
+    private val _messages = MutableSharedFlow<UiMessage>(extraBufferCapacity = 4)
+    val messages: SharedFlow<UiMessage> = _messages.asSharedFlow()
 
     private val seedMutex = Mutex()
 
@@ -88,13 +106,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         .flatMapLatest { profileId ->
             if (profileId <= 0L) {
                 return@flatMapLatest flowOf(
-                    ServiceUiState(isLoading = false, isEmpty = true, currentCar = "")
+                    ServiceUiState(
+                        isLoading = false,
+                        isEmpty = true,
+                        isDatabaseEmpty = true,
+                        currentCar = ""
+                    )
                 )
             }
 
             val carNameFlow = repo.observeProfiles().map { profiles ->
                 profiles.firstOrNull { it.id == profileId }?.catalogId ?: ""
-            }
+            }.catchItemsFlow(profileId)
 
             // 1. Сжимаем 4 настройки в один snapshot — это отдельный combine из 4 flow.
             val settingsFlow = combine(
@@ -108,7 +131,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
             // 2. Финальный combine из 3 источников — гарантированно рабочий overload.
             combine(
-                repo.observeItems(profileId),
+                repo.observeItems(profileId).catchItemsFlow(profileId),
                 carNameFlow,
                 settingsFlow
             ) { items, catalogId, settings ->
@@ -129,6 +152,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             started = SharingStarted.WhileSubscribed(5_000),
             initialValue = ServiceUiState()
         )
+
+    /**
+     * Защита потока наблюдения от сбоев БД: при исключении поток не обрывается
+     * (иначе был бы белый экран без какой-либо реакции), а отдаёт пустой список
+     * и публикует понятное сообщение об ошибке.
+     */
+    private fun <T> kotlinx.coroutines.flow.Flow<List<T>>.catchItemsFlow(profileId: Long) =
+        this.catch { t ->
+            Log.e("AutoSense", "DB observe failed for profile $profileId", t)
+            errorFlow.value = "Ошибка базы данных"
+            _messages.tryEmit(UiMessage.Error("Не удалось загрузить данные из базы"))
+            emit(emptyList())
+        }
 
     private fun buildState(
         items: List<ServiceItem>,
@@ -175,6 +211,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         return ServiceUiState(
             listItems = listItems,
             isEmpty = listItems.isEmpty(),
+            isDatabaseEmpty = items.isEmpty(),
             isLoading = loading,
             error = error,
             currentCar = catalogId,
@@ -193,26 +230,49 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 val id = prefs.currentProfileId
                 if (id > 0) seedIfEmpty(id)
+                errorFlow.value = null
                 loadingFlow.value = false
             } catch (t: Throwable) {
-                errorFlow.value = t.message ?: "Unknown error"
+                Log.e("AutoSense", "Bootstrap failed", t)
+                errorFlow.value = "Не удалось загрузить данные"
+                _messages.tryEmit(UiMessage.Error("Ошибка базы данных: ${t.message ?: "неизвестная ошибка"}"))
                 loadingFlow.value = false
             }
         }
     }
 
     private suspend fun seedIfEmpty(profileId: Long) {
+        if (profileId <= 0L) return
         seedMutex.withLock {
-            if (repo.countItems(profileId) != 0) return
-            val profile = repo.getProfileById(profileId) ?: return
-            val catalog = repo.loadCatalog()
-            val carModel = catalog.cars.firstOrNull { it.id == profile.catalogId } ?: return
-            val generated = useCase.generateFromCatalog(
-                car = carModel,
-                profileId = profileId,
-                currentKm = profile.currentKm
-            )
-            repo.insertItems(generated)
+            try {
+                if (repo.countItems(profileId) != 0) return
+                val profile = repo.getProfileById(profileId) ?: return
+                val catalog = repo.loadCatalog()
+                val carModel = catalog.cars.firstOrNull { it.id == profile.catalogId } ?: return
+                val generated = useCase.generateFromCatalog(
+                    car = carModel,
+                    profileId = profileId,
+                    currentKm = profile.currentKm
+                )
+                repo.insertItems(generated)
+            } catch (t: Throwable) {
+                Log.e("AutoSense", "Failed to seed services for profile $profileId", t)
+                _messages.tryEmit(UiMessage.Error("Не удалось подготовить список ТО"))
+            }
+        }
+    }
+
+    /**
+     * Единая точка обработки ошибок БД для write-операций:
+     * логируем в консоль и показываем понятное сообщение (Snackbar), а не системный краш.
+     */
+    private suspend fun dbOp(fallbackMessage: String, block: suspend () -> Unit) {
+        try {
+            block()
+        } catch (t: Throwable) {
+            Log.e("AutoSense", "$fallbackMessage (DB operation failed)", t)
+            errorFlow.value = "Ошибка базы данных"
+            _messages.tryEmit(UiMessage.Error(fallbackMessage))
         }
     }
 
@@ -220,7 +280,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             val profileId = currentProfileFlow.value
             when (event) {
-                is UiEvent.MarkDone -> {
+                is UiEvent.MarkDone -> dbOp("Не удалось сохранить запись") {
                     val updated = useCase.markServiceDone(event.item, event.currentKm)
                     repo.updateItem(updated)
                     repo.insertRecord(
@@ -233,9 +293,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     )
                     prefs.setLastKm(profileId, event.currentKm)
                     prefs.setLastKmUpdate(profileId, System.currentTimeMillis())
+                    _messages.tryEmit(UiMessage.Info("ТО отмечено: ${event.item.name}"))
                 }
 
-                is UiEvent.UpdateKm -> {
+                is UiEvent.UpdateKm -> dbOp("Не удалось обновить пробег") {
                     val items = repo.getItemsOnce(profileId)
                     if (items.isNotEmpty()) {
                         val threshold = prefs.yellowThreshold
@@ -252,7 +313,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     prefs.setLastKmUpdate(profileId, System.currentTimeMillis())
                 }
 
-                is UiEvent.DeleteItem -> repo.deleteItem(event.item)
+                is UiEvent.DeleteItem -> dbOp("Не удалось удалить запись") {
+                    repo.deleteItem(event.item)
+                }
+
                 is UiEvent.SetFilter -> filterFlow.value = event.filter
                 is UiEvent.SetSearchQuery -> searchQueryFlow.value = event.query
             }
@@ -265,6 +329,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 seedIfEmpty(prefs.currentProfileId)
+                errorFlow.value = null
+            } catch (t: Throwable) {
+                Log.e("AutoSense", "Reload failed", t)
+                errorFlow.value = "Не удалось загрузить данные"
+                _messages.tryEmit(UiMessage.Error("Ошибка базы данных: ${t.message ?: "неизвестная ошибка"}"))
             } finally {
                 loadingFlow.value = false
             }
