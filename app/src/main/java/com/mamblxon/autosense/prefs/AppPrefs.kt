@@ -53,6 +53,19 @@ class AppPrefs(context: Context) {
         sortOrderName = order.name
     }
 
+    // ---- Фильтр по типам работ (значения — имена enum ServiceType, CSV) ----
+    /** Активные типы работ, восстановленные после перезапуска приложения. */
+    val typeFilterNames: Set<String>
+        get() = sp.getString(KEY_TYPE_FILTER, "")
+            ?.split(",")
+            ?.mapNotNull { it.trim().takeIf(String::isNotEmpty) }
+            ?.toSet()
+            ?: emptySet()
+
+    fun setTypeFilter(names: Set<String>) {
+        sp.edit().putString(KEY_TYPE_FILTER, names.joinToString(",")).apply()
+    }
+
     // ---- Пробег по профилю ----
     fun getLastKm(profileId: Long): Int =
         sp.getInt("${KEY_LAST_KM}__$profileId", 0)
@@ -85,6 +98,7 @@ class AppPrefs(context: Context) {
         const val KEY_LAST_KM = "last_km"
         const val KEY_LAST_KM_UPDATE = "last_km_update"
         const val KEY_SORT_ORDER = "sort_order"
+        const val KEY_TYPE_FILTER = "type_filter"
 
         /** Значение по умолчанию: «По дате (новые сначала)». */
         const val DEFAULT_SORT_ORDER = "DATE_DESC"

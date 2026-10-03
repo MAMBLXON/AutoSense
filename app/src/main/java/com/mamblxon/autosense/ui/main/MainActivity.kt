@@ -490,8 +490,11 @@ class MainActivity : AppCompatActivity(), SwipeActionHandler {
                 }
             }
         } else {
+            // Пока идёт загрузка (первая эмиссия Flow ещё не состоялась) — не показываем
+            // ни список, ни заглушку: иначе при первом запуске на мгновение мелькнет
+            // «Пока нет записей», хотя данные ещё не пришли.
             binding.emptyState.isVisible = false
-            binding.recycler.isVisible = true
+            binding.recycler.isVisible = !st.isLoading
             binding.emptyAddButton.isVisible = false
         }
     }
@@ -566,7 +569,17 @@ class MainActivity : AppCompatActivity(), SwipeActionHandler {
             durationMs = 4000
         ) {
             // Пользователь нажал «Отменить» — восстанавливаем запись в базе.
-            viewModel.onEvent(UiEvent.RestoreItem(item))
+            // undo-колбэк живёт дольше ViewModel при быстром закрытии экрана —
+            // защищаемся от IllegalStateException («ViewModel is destroyed»).
+            try {
+                viewModel.onEvent(UiEvent.RestoreItem(item))
+            } catch (t: Throwable) {
+                Log.e("AutoSense", "Restore after undo failed (viewModel gone?)", t)
+                AppDialogs.snackbarError(
+                    view = findViewById(android.R.id.content),
+                    text = "Не удалось восстановить запись"
+                )
+            }
         }
     }
 

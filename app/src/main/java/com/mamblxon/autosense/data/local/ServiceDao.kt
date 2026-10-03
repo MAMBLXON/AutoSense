@@ -36,9 +36,16 @@ interface ServiceDao {
     /**
      * Поиск по названию ТО (title/name) в рамках профиля.
      * Пустая строка запроса -> все записи (LIKE '%%' совпадает с любым названием).
+     *  • LOWER(...) — регистронезависимый поиск («масло» найдёт «Масло»; для кириллицы
+     *    SQLite lower() работает побайтово только для ASCII, но UI-фильтр в ViewModel
+     *    использует Kotlin contains(ignoreCase = true), который корректен для кириллицы);
+     *  • ESCAPE '\' — спецсимволы LIKE (% и _) экранируются вызывающей стороной,
+     *    поэтому пользовательский ввод не может изменить семантику запроса
+     *    (значения передаются как параметр — классических SQL-инъекций здесь нет).
      */
     @Query(
-        "SELECT * FROM service_items WHERE profileId = :profileId AND name LIKE '%' || :query || '%' " +
+        "SELECT * FROM service_items WHERE profileId = :profileId " +
+            "AND LOWER(name) LIKE '%' || LOWER(:query) || '%' ESCAPE '\\' " +
             "ORDER BY lastServiceDateMillis DESC"
     )
     suspend fun searchByTitle(profileId: Long, query: String): List<ServiceItem>

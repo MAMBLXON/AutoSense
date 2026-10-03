@@ -157,6 +157,37 @@ class ValidationTest {
         assertEquals(null, useCase.parseIntOrNull("abc"))
     }
 
+    // ---------- parseDate: високосные годы (пункт 12) ----------
+
+    @Test
+    fun `parseDate accepts leap day of leap year`() {
+        // 2024 — високосный: 29.02 существует
+        val date = useCase.parseDate("29.02.2024")
+        assertNotNull(date)
+    }
+
+    @Test
+    fun `parseDate rejects feb 29 in non-leap year`() {
+        // 2023 — не високосный: 29.02 быть не может (isLenient=false должен отклонить)
+        assertEquals(null, useCase.parseDate("29.02.2023"))
+    }
+
+    @Test
+    fun `parseDate rejects impossible dates`() {
+        assertEquals(null, useCase.parseDate("31.02.2026"))
+        assertEquals(null, useCase.parseDate("00.01.2026"))
+        assertEquals(null, useCase.parseDate("01.13.2026"))
+    }
+
+    @Test
+    fun `validateDateNotFuture rejects feb 29 in non-leap year`() {
+        val now = System.currentTimeMillis()
+        assertTrue(
+            useCase.validateDateNotFuture("29.02.2023", nowMillis = now)
+                is ValidationResult.Invalid
+        )
+    }
+
     @Test
     fun `parseIntOrNull parses valid with trim`() {
         assertEquals(42, useCase.parseIntOrNull("  42  "))

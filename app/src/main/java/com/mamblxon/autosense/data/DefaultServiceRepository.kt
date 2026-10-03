@@ -35,7 +35,21 @@ class DefaultServiceRepository(
         serviceDao.getAllOnceByProfile(profileId)
 
     override suspend fun searchItems(profileId: Long, query: String): List<ServiceItem> =
-        serviceDao.searchByTitle(profileId, query.trim())
+        serviceDao.searchByTitle(profileId, escapeLike(query.trim()))
+
+    /**
+     * Экранирование спецсимволов LIKE (% и _), чтобы пользовательский ввод
+     * («100% масло», «_filter») искал дословно, а не как шаблон.
+     * Совместимо с ESCAPE '\' в запросе ServiceDao.searchByTitle.
+     */
+    private fun escapeLike(raw: String): String = buildString(raw.length + 4) {
+        for (ch in raw) {
+            when (ch) {
+                '%', '_', '\\' -> append('\\').append(ch)
+                else -> append(ch)
+            }
+        }
+    }
 
     override suspend fun getItemById(id: Long): ServiceItem? =
         serviceDao.getById(id)
