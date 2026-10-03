@@ -10,6 +10,7 @@ import com.mamblxon.autosense.domain.usecase.ServiceUseCase
 import com.mamblxon.autosense.prefs.AppPrefs
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -151,33 +152,40 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             }
 
             // carNameFlow отдаёт Flow<String>, поэтому catch здесь — свой, с типом String.
-            val carNameFlow: kotlinx.coroutines.flow.Flow<String> =
-                repo.observeProfiles().map { profiles ->
-                    profiles.firstOrNull { it.id == profileId }?.catalogId ?: ""
-                }.catch { t ->
-                    Log.e("AutoSense", "DB observe profiles failed for profile $profileId", t)
-                    emit("")
+            val carNameFlow: Flow<String> = repo.observeProfiles().map { profiles ->
+                profiles.firstOrNull { it.id == profileId }?.catalogId ?: ""
+            }.catch { t ->
+                Log.e("AutoSense", "DB observe profiles failed for profile $profileId", t)
+                emit("")
+            }
+
+            // Поток записей: при сбое БД не обрывается, а отдаёт пустой список
+            // и публикует понятное сообщение (см. catchItemsFlow).
+            val itemsFlow: Flow<List<ServiceItem>> =
+                repo.observeItems(profileId).catchItemsFlow(profileId)
+
+            // Сжимаем настройки в один snapshot: combine из явных типов-лямбда,
+            // чтобы вывод типов не зависел от количества источников.
+            val filtersFlow: Flow<Triple<ServiceFilter, String, Set<ServiceType>>> =
+                combine(filterFlow, debouncedQuery, typeFilterFlow) { f, q, t ->
+                    Triple(f, q, t)
+                }
+            val errorLoadingFlow: Flow<Pair<String?, Boolean>> =
+                combine(errorFlow, loadingFlow) { e, l -> e to l }
+            val settingsFlow: Flow<SettingsSnapshot> =
+                combine(filtersFlow, errorLoadingFlow, sortFlow) { triple, pair, sort ->
+                    SettingsSnapshot(
+                        filter = triple.first,
+                        query = triple.second,
+                        error = pair.first,
+                        loading = pair.second,
+                        types = triple.third,
+                        sort = sort
+                    )
                 }
 
-            // 1. Сжимаем настройки в один snapshot: combine имеет overload максимум на 5
-            //    потоков, поэтому фильтры объединяются двумя вложенными combine.
-            val filtersFlow = combine(filterFlow, debouncedQuery, typeFilterFlow) { f, q, t ->
-                Triple(f, q, t)
-            }
-            val settingsFlow = combine(
-                filtersFlow,
-                combine(errorFlow, loadingFlow) { e, l -> e to l },
-                sortFlow
-            ) { (filter, query, types), (error, loading), sort ->
-                SettingsSnapshot(filter, query, error, loading, types, sort)
-            }
-
-            // 2. Финальный combine из 3 источников.
-            combine(
-                repo.observeItems(profileId).catchItemsFlow<List<ServiceItem>>(profileId),
-                carNameFlow,
-                settingsFlow
-            ) { items, catalogId, settings ->
+            // Финальный combine из 3 источников.
+            combine(itemsFlow, carNameFlow, settingsFlow) { items, catalogId, settings ->
                 buildState(
                     items = items,
                     catalogId = catalogId,
@@ -203,7 +211,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * (иначе был бы белый экран без какой-либо реакции), а отдаёт пустой список
      * и публикует понятное сообщение об ошибке.
      */
-    private fun <T> kotlinx.coroutines.flow.Flow<List<T>>.catchItemsFlow(profileId: Long) =
+    private fun <T> Flow<List<T>>.catchItemsFlow(profileId: Long): Flow<List<T>> =
         this.catch { t ->
             Log.e("AutoSense", "DB observe failed for profile $profileId", t)
             errorFlow.value = "Ошибка базы данных"
