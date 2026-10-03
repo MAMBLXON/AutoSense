@@ -150,25 +150,31 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 )
             }
 
-            val carNameFlow = repo.observeProfiles().map { profiles ->
-                profiles.firstOrNull { it.id == profileId }?.catalogId ?: ""
-            }.catchItemsFlow(profileId)
+            // carNameFlow отдаёт Flow<String>, поэтому catch здесь — свой, с типом String.
+            val carNameFlow: kotlinx.coroutines.flow.Flow<String> =
+                repo.observeProfiles().map { profiles ->
+                    profiles.firstOrNull { it.id == profileId }?.catalogId ?: ""
+                }.catch { t ->
+                    Log.e("AutoSense", "DB observe profiles failed for profile $profileId", t)
+                    emit("")
+                }
 
-            // 1. Сжимаем 6 настроек в один snapshot — это отдельный combine.
+            // 1. Сжимаем настройки в один snapshot: combine имеет overload максимум на 5
+            //    потоков, поэтому фильтры объединяются двумя вложенными combine.
+            val filtersFlow = combine(filterFlow, debouncedQuery, typeFilterFlow) { f, q, t ->
+                Triple(f, q, t)
+            }
             val settingsFlow = combine(
-                filterFlow,
-                debouncedQuery,
-                errorFlow,
-                loadingFlow,
-                typeFilterFlow,
+                filtersFlow,
+                combine(errorFlow, loadingFlow) { e, l -> e to l },
                 sortFlow
-            ) { filter, query, error, loading, types, sort ->
+            ) { (filter, query, types), (error, loading), sort ->
                 SettingsSnapshot(filter, query, error, loading, types, sort)
             }
 
-            // 2. Финальный combine из 3 источников — гарантированно рабочий overload.
+            // 2. Финальный combine из 3 источников.
             combine(
-                repo.observeItems(profileId).catchItemsFlow(profileId),
+                repo.observeItems(profileId).catchItemsFlow<List<ServiceItem>>(profileId),
                 carNameFlow,
                 settingsFlow
             ) { items, catalogId, settings ->
