@@ -10,7 +10,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.mamblxon.autosense.R
@@ -60,23 +62,26 @@ class DetailActivity : AppCompatActivity() {
         binding.btnMarkDone.isEnabled = false
         binding.btnMarkDone.setOnClickListener { showMarkDoneDialog() }
 
+        // repeatOnLifecycle(STARTED): без утечки корутин при пересоздании Activity
         lifecycleScope.launch {
-            viewModel.state.collectLatest { st ->
-                if (st.notFound && !finished) {
-                    finished = true
-                    AppDialogs.toast(this@DetailActivity, "Позиция удалена")
-                    finish()
-                    return@collectLatest
-                }
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.state.collectLatest { st ->
+                    if (st.notFound && !finished) {
+                        finished = true
+                        AppDialogs.toast(this@DetailActivity, "Позиция удалена")
+                        finish()
+                        return@collectLatest
+                    }
 
-                binding.toolbar.title = st.item?.car ?: "AutoSense"
-                binding.tvTitle.text = st.item?.name ?: "—"
-                binding.tvSubtitle.text = st.item?.let {
-                    "${it.car} · каждые ${it.intervalKm} км / ${it.intervalMonths} мес"
-                } ?: ""
-                adapter.submitList(st.history)
-                binding.tvEmpty.isVisible = st.history.isEmpty()
-                binding.btnMarkDone.isEnabled = st.item != null && !st.isLoading
+                    binding.toolbar.title = st.item?.car ?: "AutoSense"
+                    binding.tvTitle.text = st.item?.name ?: "—"
+                    binding.tvSubtitle.text = st.item?.let {
+                        "${it.car} · каждые ${it.intervalKm} км / ${it.intervalMonths} мес"
+                    } ?: ""
+                    adapter.submitList(st.history)
+                    binding.tvEmpty.isVisible = st.history.isEmpty()
+                    binding.btnMarkDone.isEnabled = st.item != null && !st.isLoading
+                }
             }
         }
     }
