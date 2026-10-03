@@ -128,6 +128,7 @@ class AddActivity : AppCompatActivity() {
     private fun showDatePicker() {
         val picker = MaterialDatePicker.Builder.datePicker()
             .setTitleText("Дата последнего ТО")
+            .setSelection(MaterialDatePicker.todayInUtcMilliseconds())
             .setCalendarConstraints(
                 CalendarConstraints.Builder()
                     .setValidator(

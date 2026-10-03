@@ -61,11 +61,8 @@ class GroupedServiceAdapter(
                 target: RecyclerView.ViewHolder
             ): Boolean = false
 
-            override fun isSwipeEnabled(viewHolder: RecyclerView.ViewHolder): Boolean =
-                rowItemPosition(viewHolder) >= 0
-
             override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
-                if (!isSwipeEnabled(viewHolder)) return
+                // Свайп обрабатывается только на строках с записями (не на заголовках категорий).
                 val pos = rowItemPosition(viewHolder)
                 if (pos < 0) return
                 val item = (getItem(pos) as ServiceListItem.Row).item
