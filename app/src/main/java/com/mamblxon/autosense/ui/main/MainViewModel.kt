@@ -123,9 +123,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val loadingFlow = MutableStateFlow(true)
     private val searchQueryFlow = MutableStateFlow("")
     /** Фильтр по типам работ (чекбоксы диалога «Фильтр»). Пустой набор = без фильтра. */
-    private val typeFilterFlow = MutableStateFlow<Set<ServiceType>>(emptySet())
+    private val typeFilterFlow = MutableStateFlow(restoreTypeFilter())
+
     /** Сортировка; выбранная сортировка сохраняется в SharedPreferences. */
     private val sortFlow = MutableStateFlow(prefs.sortOrder)
+
+    /** Восстановление сохранённого фильтра по типам (между запусками приложения). */
+    private fun restoreTypeFilter(): Set<ServiceType> =
+        prefs.typeFilterNames.mapNotNull { name ->
+            runCatching { ServiceType.valueOf(name) }.getOrNull()
+        }.toSet()
 
     private val _messages = MutableSharedFlow<UiMessage>(extraBufferCapacity = 4)
     val messages: SharedFlow<UiMessage> = _messages.asSharedFlow()
@@ -398,7 +405,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 is UiEvent.SetFilter -> filterFlow.value = event.filter
                 is UiEvent.SetSearchQuery -> searchQueryFlow.value = event.query
 
-                is UiEvent.SetTypeFilter -> typeFilterFlow.value = event.types
+                is UiEvent.SetTypeFilter -> {
+                    typeFilterFlow.value = event.types
+                    // Фильтр сохраняется между запусками приложения (SharedPreferences).
+                    prefs.setTypeFilter(event.types.map { it.name }.toSet())
+                }
 
                 is UiEvent.SetSortOrder -> {
                     sortFlow.value = event.order

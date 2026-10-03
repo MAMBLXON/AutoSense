@@ -72,6 +72,8 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
     testImplementation("androidx.arch.core:core-testing:2.2.0")
+    // Ассерты в unit-тестах берутся из kotlin.test (assertEquals/assertNotNull/assertTrue)
+    testImplementation(kotlin("test"))
 
     // --- Instrumented-тесты (запускаются на устройстве/эмуляторе) ---
     androidTestImplementation("androidx.test.ext:junit:1.2.1")

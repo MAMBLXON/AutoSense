@@ -10,10 +10,13 @@ import com.mamblxon.autosense.data.remote.EngineSpec
 import com.mamblxon.autosense.domain.model.CarProfile
 import com.mamblxon.autosense.domain.usecase.ServiceUseCase
 import com.mamblxon.autosense.prefs.AppPrefs
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class ServiceEntryState(
     val index: Int,
@@ -53,6 +56,9 @@ class OnboardingViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _state = MutableStateFlow(OnboardingUiState())
     val state: StateFlow<OnboardingUiState> = _state.asStateFlow()
+
+    /** Атомарный guard от race condition двойного нажатия «Создать профиль». */
+    private val savingGuard = AtomicBoolean(false)
 
     init {
         viewModelScope.launch {
@@ -151,7 +157,8 @@ class OnboardingViewModel(app: Application) : AndroidViewModel(app) {
         val engine = sel.engine ?: return
         val tr = sel.transmission ?: return
 
-        if (_state.value.isSaving) return
+        // Атомарный guard от двойного нажатия (compareAndSet вместо проверки флага в состоянии)
+        if (!savingGuard.compareAndSet(false, true)) return
         _state.value = _state.value.copy(isSaving = true, error = null)
 
         viewModelScope.launch {
@@ -189,10 +196,14 @@ class OnboardingViewModel(app: Application) : AndroidViewModel(app) {
 
                 _state.value = _state.value.copy(isSaving = false, done = true)
             } catch (t: Throwable) {
+                android.util.Log.e("AutoSense", "Onboarding save failed", t)
                 _state.value = _state.value.copy(
                     isSaving = false,
                     error = t.message ?: "Не удалось сохранить профиль"
                 )
+            } finally {
+                // Сброс guard'а в finally — при любом исходе кнопка разблокируется
+                withContext(NonCancellable) { savingGuard.set(false) }
             }
         }
     }

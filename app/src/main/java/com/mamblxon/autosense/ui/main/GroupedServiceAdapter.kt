@@ -36,6 +36,14 @@ class GroupedServiceAdapter(
     private val swipeHandler: SwipeActionHandler? = null
 ) : ListAdapter<ServiceListItem, RecyclerView.ViewHolder>(DIFF) {
 
+    init {
+        // Стабильные id по элементам — нужно для findViewHolderForItemId (shared element
+        // transition) и корректных анимаций без мерцания.
+        setHasStableIds(true)
+    }
+
+    override fun getItemId(position: Int): Long = getItem(position).id
+
     private var touchHelper: ItemTouchHelper? = null
 
     /** Позиция строки в списке или -1, если holder — заголовок. */
@@ -295,13 +303,10 @@ class GroupedServiceAdapter(
 
         private val DIFF = object : DiffUtil.ItemCallback<ServiceListItem>() {
             override fun areItemsTheSame(a: ServiceListItem, b: ServiceListItem): Boolean =
-                when {
-                    a is ServiceListItem.Header && b is ServiceListItem.Header ->
-                        a.category == b.category
-                    a is ServiceListItem.Row && b is ServiceListItem.Row ->
-                        a.item.id == b.item.id
-                    else -> false
-                }
+                // Стабильный id: у строк — id записи, у заголовков — хэш категории.
+                // Заголовок остаётся тем же элементом при изменении count/hasUrgent,
+                // перерисовка идёт через areContentsTheSame (без мерцания).
+                a.id == b.id
 
             override fun areContentsTheSame(a: ServiceListItem, b: ServiceListItem): Boolean =
                 a == b

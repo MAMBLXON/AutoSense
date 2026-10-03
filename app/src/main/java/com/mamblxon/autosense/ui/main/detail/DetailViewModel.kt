@@ -55,35 +55,43 @@ class DetailViewModel(
     fun markDone(currentKm: Int) {
         val current = _state.value.item ?: return
         viewModelScope.launch {
-            val updated = useCase.markServiceDone(current, currentKm)
-            repo.updateItem(updated)
-            repo.insertRecord(
-                useCase.createRecord(
-                    itemId = updated.id,
-                    km = currentKm,
-                    note = "Пробег: $currentKm км"
+            try {
+                val updated = useCase.markServiceDone(current, currentKm)
+                repo.updateItem(updated)
+                repo.insertRecord(
+                    useCase.createRecord(
+                        itemId = updated.id,
+                        km = currentKm,
+                        note = "Пробег: $currentKm км"
+                    )
                 )
-            )
-            _state.value = _state.value.copy(item = updated)
+                _state.value = _state.value.copy(item = updated)
+            } catch (t: Throwable) {
+                android.util.Log.e("AutoSense", "markDone failed", t)
+            }
         }
     }
 
     fun editItem(newName: String, newIntervalKm: Int, newIntervalMonths: Int) {
         val current = _state.value.item ?: return
         viewModelScope.launch {
-            val edited = current.copy(
-                name = newName,
-                intervalKm = newIntervalKm,
-                intervalMonths = newIntervalMonths
-            )
-            val withUrgency = edited.copy(
-                urgency = useCase.computeUrgency(
-                    item = edited,
-                    yellowThreshold = prefs.yellowThreshold
+            try {
+                val edited = current.copy(
+                    name = newName,
+                    intervalKm = newIntervalKm,
+                    intervalMonths = newIntervalMonths
                 )
-            )
-            repo.updateItem(withUrgency)
-            _state.value = _state.value.copy(item = withUrgency)
+                val withUrgency = edited.copy(
+                    urgency = useCase.computeUrgency(
+                        item = edited,
+                        yellowThreshold = prefs.yellowThreshold
+                    )
+                )
+                repo.updateItem(withUrgency)
+                _state.value = _state.value.copy(item = withUrgency)
+            } catch (t: Throwable) {
+                android.util.Log.e("AutoSense", "editItem failed", t)
+            }
         }
     }
 

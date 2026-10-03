@@ -11,7 +11,6 @@ import android.text.InputType
 import com.mamblxon.autosense.data.DefaultServiceRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import android.util.Log
 import android.view.Menu
@@ -28,7 +27,9 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.DefaultItemAnimator
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.mamblxon.autosense.R
@@ -90,33 +91,27 @@ class MainActivity : AppCompatActivity(), SwipeActionHandler {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        binding = ActivityMainBinding.inflate(layoutInflater)
+        setContentView(binding.root)
+
         // Если currentProfileId не установлен, но профили есть в БД — выберем первый.
         // Это защита от старого состояния prefs: профиль создан, но id не сохранён.
+        // Без runBlocking на главном потоке (грозит ANR): асинхронная инициализация,
+        // MainViewModel сам отдаёт пустое состояние, пока profileId == 0.
         if (prefs.currentProfileId <= 0L) {
-            val hasProfiles = kotlinx.coroutines.runBlocking {
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    DefaultServiceRepository.get(applicationContext).countProfiles() > 0
-                }
-            }
-            if (hasProfiles) {
-                val firstProfile = kotlinx.coroutines.runBlocking {
-                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                        DefaultServiceRepository.get(applicationContext).observeProfiles()
-                            .first().firstOrNull()
-                    }
+            lifecycleScope.launch {
+                val firstProfile = withContext(Dispatchers.IO) {
+                    DefaultServiceRepository.get(applicationContext).observeProfiles()
+                        .first().firstOrNull()
                 }
                 if (firstProfile != null) {
                     prefs.currentProfileId = firstProfile.id
+                } else {
+                    startActivity(Intent(this@MainActivity, com.mamblxon.autosense.ui.onboarding.OnboardingActivity::class.java))
+                    finish()
                 }
-            } else {
-                startActivity(Intent(this, com.mamblxon.autosense.ui.onboarding.OnboardingActivity::class.java))
-                finish()
-                return
             }
         }
-
-        binding = ActivityMainBinding.inflate(layoutInflater)
-        setContentView(binding.root)
 
         savedScrollPosition = savedInstanceState?.getInt(STATE_SCROLL_POS, 0) ?: 0
         restoreScrollPending = savedScrollPosition > 0
@@ -136,7 +131,7 @@ class MainActivity : AppCompatActivity(), SwipeActionHandler {
         // Свайп-действия: влево — удаление с undo, вправо — редактирование.
         adapter.attachToRecyclerView(binding.recycler)
 
-        binding.fabUpdateKm.setOnClickListener { showAddItemDialog() }
+        binding.fabUpdateKm.setOnClickListener { showUpdateKmDialog() }
 
         binding.emptyAddButton.setOnClickListener { showAddItemDialog() }
 
@@ -153,51 +148,58 @@ class MainActivity : AppCompatActivity(), SwipeActionHandler {
 
         applyFilterFromIntent(intent)
 
+        // Подписка на состояние — через repeatOnLifecycle(STARTED): корутина
+        // отменяется на STOP и перезапускается на START, без утечек при
+        // пересоздании Activity (поворот экрана) и без сбора мусора в фоне.
         lifecycleScope.launch {
-            viewModel.state.collectLatest { st ->
-                adapter.submitList(st.listItems) {
-                    when {
-                        restoreScrollPending && st.listItems.isNotEmpty() -> {
-                            restoreScrollPending = false
-                            binding.recycler.scrollToPosition(
-                                savedScrollPosition.coerceIn(0, st.listItems.size - 1)
-                            )
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                launch {
+                    viewModel.state.collectLatest { st ->
+                        adapter.submitList(st.listItems) {
+                            when {
+                                restoreScrollPending && st.listItems.isNotEmpty() -> {
+                                    restoreScrollPending = false
+                                    binding.recycler.scrollToPosition(
+                                        savedScrollPosition.coerceIn(0, st.listItems.size - 1)
+                                    )
+                                }
+                                scrollToTopOnNextRender -> {
+                                    scrollToTopOnNextRender = false
+                                    binding.recycler.scrollToPosition(0)
+                                }
+                            }
                         }
-                        scrollToTopOnNextRender -> {
-                            scrollToTopOnNextRender = false
-                            binding.recycler.scrollToPosition(0)
+
+                        binding.toolbar.title = when {
+                            st.isLoading -> "Загрузка…"
+                            st.error != null -> "Ошибка: ${st.error}"
+                            st.currentCar.isBlank() -> "AutoSense"
+                            else -> "AutoSense · ${st.currentCar}"
+                        }
+                        renderChips(st)
+                        renderEmptyState(st)
+
+                        if (!firstListRendered && st.listItems.isNotEmpty() && !st.isLoading) {
+                            firstListRendered = true
+                            binding.recycler.scheduleLayoutAnimation()
                         }
                     }
                 }
 
-                binding.toolbar.title = when {
-                    st.isLoading -> "Загрузка…"
-                    st.error != null -> "Ошибка: ${st.error}"
-                    st.currentCar.isBlank() -> "AutoSense"
-                    else -> "AutoSense · ${st.currentCar}"
-                }
-                renderChips(st)
-                renderEmptyState(st)
-
-                if (!firstListRendered && st.listItems.isNotEmpty() && !st.isLoading) {
-                    firstListRendered = true
-                    binding.recycler.scheduleLayoutAnimation()
-                }
-            }
-        }
-
-        // Одноразовые сообщения (ошибки БД, подтверждения) — Snackbar вместо краша/тишины.
-        lifecycleScope.launch {
-            viewModel.messages.collectLatest { msg ->
-                when (msg) {
-                    is UiMessage.Error -> AppDialogs.snackbarError(
-                        view = binding.root,
-                        text = msg.text
-                    )
-                    is UiMessage.Info -> AppDialogs.snackbarInfo(
-                        view = binding.root,
-                        text = msg.text
-                    )
+                // Одноразовые сообщения (ошибки БД, подтверждения) — Snackbar вместо краша/тишины.
+                launch {
+                    viewModel.messages.collectLatest { msg ->
+                        when (msg) {
+                            is UiMessage.Error -> AppDialogs.snackbarError(
+                                view = binding.root,
+                                text = msg.text
+                            )
+                            is UiMessage.Info -> AppDialogs.snackbarInfo(
+                                view = binding.root,
+                                text = msg.text
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -295,6 +297,10 @@ class MainActivity : AppCompatActivity(), SwipeActionHandler {
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         return when (item.itemId) {
+            R.id.action_add_service -> {
+                showAddItemDialog()
+                true
+            }
             R.id.action_issues -> {
                 startActivity(
                     Intent(this, com.mamblxon.autosense.ui.issues.CarIssuesActivity::class.java)
@@ -488,8 +494,11 @@ class MainActivity : AppCompatActivity(), SwipeActionHandler {
                 }
             }
         } else {
+            // Пока идёт загрузка (первая эмиссия Flow ещё не состоялась) — не показываем
+            // ни список, ни заглушку: иначе при первом запуске на мгновение мелькнет
+            // «Пока нет записей», хотя данные ещё не пришли.
             binding.emptyState.isVisible = false
-            binding.recycler.isVisible = true
+            binding.recycler.isVisible = !st.isLoading
             binding.emptyAddButton.isVisible = false
         }
     }
@@ -564,7 +573,17 @@ class MainActivity : AppCompatActivity(), SwipeActionHandler {
             durationMs = 4000
         ) {
             // Пользователь нажал «Отменить» — восстанавливаем запись в базе.
-            viewModel.onEvent(UiEvent.RestoreItem(item))
+            // undo-колбэк живёт дольше ViewModel при быстром закрытии экрана —
+            // защищаемся от IllegalStateException («ViewModel is destroyed»).
+            try {
+                viewModel.onEvent(UiEvent.RestoreItem(item))
+            } catch (t: Throwable) {
+                Log.e("AutoSense", "Restore after undo failed (viewModel gone?)", t)
+                AppDialogs.snackbarError(
+                    view = findViewById(android.R.id.content),
+                    text = "Не удалось восстановить запись"
+                )
+            }
         }
     }
 

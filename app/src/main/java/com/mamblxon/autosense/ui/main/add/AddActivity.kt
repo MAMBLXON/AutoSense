@@ -7,7 +7,9 @@ import android.util.Log
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.widget.doAfterTextChanged
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import com.google.android.material.datepicker.CalendarConstraints
 import com.google.android.material.datepicker.CompositeDateValidator
 import com.google.android.material.datepicker.DateValidatorPointBackward
@@ -50,15 +52,21 @@ class AddActivity : AppCompatActivity() {
 
         binding.btnSave.setOnClickListener { attemptSave() }
 
+        // repeatOnLifecycle(STARTED): подписка отменяется на STOP и
+        // перезапускается после пересоздания Activity (поворот экрана),
+        // поэтому результат сохранения (isSaving/canSave/сообщение) доходит
+        // до нового экземпляра Activity, а не теряется в мёртвой корутине.
         lifecycleScope.launch {
-            viewModel.state.collectLatest { st ->
-                binding.tvCarInfo.text = if (st.carName.isBlank()) {
-                    "Новая работа"
-                } else {
-                    "${st.carName} · текущий пробег ${st.currentKm} км"
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.state.collectLatest { st ->
+                    binding.tvCarInfo.text = if (st.carName.isBlank()) {
+                        "Новая работа"
+                    } else {
+                        "${st.carName} · текущий пробег ${st.currentKm} км"
+                    }
+                    // Кнопка «Сохранить» неактивна (серая), пока форма не полностью валидна
+                    binding.btnSave.isEnabled = st.canSave && !st.isSaving
                 }
-                // Кнопка «Сохранить» неактивна (серая), пока форма не полностью валидна
-                binding.btnSave.isEnabled = st.canSave && !st.isSaving
             }
         }
 

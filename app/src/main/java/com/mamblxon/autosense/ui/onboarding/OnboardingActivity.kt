@@ -5,7 +5,9 @@ import android.os.Bundle
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import com.mamblxon.autosense.databinding.ActivityOnboardingBinding
 import com.mamblxon.autosense.ui.main.MainActivity
 import kotlinx.coroutines.flow.collectLatest
@@ -49,25 +51,28 @@ class OnboardingActivity : AppCompatActivity() {
             }
         }
 
+        // repeatOnLifecycle(STARTED): без утечки корутин при пересоздании Activity
         lifecycleScope.launch {
-            viewModel.state.collectLatest { st ->
-                binding.progressIndicator.setProgressCompat(currentStep, true)
-                binding.tvStep.text = "Шаг $currentStep из 4"
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.state.collectLatest { st ->
+                    binding.progressIndicator.setProgressCompat(currentStep, true)
+                    binding.tvStep.text = "Шаг $currentStep из 4"
 
-                binding.btnNext.isEnabled = when (currentStep) {
-                    1 -> st.selection.model != null
-                    2 -> st.selection.isStep2Complete
-                    3 -> true
-                    else -> !st.isSaving
-                }
-                binding.btnNext.text = when (currentStep) {
-                    4 -> if (st.isSaving) "Сохраняем…" else "Создать профиль"
-                    else -> "Далее"
-                }
+                    binding.btnNext.isEnabled = when (currentStep) {
+                        1 -> st.selection.model != null
+                        2 -> st.selection.isStep2Complete
+                        3 -> true
+                        else -> !st.isSaving
+                    }
+                    binding.btnNext.text = when (currentStep) {
+                        4 -> if (st.isSaving) "Сохраняем…" else "Создать профиль"
+                        else -> "Далее"
+                    }
 
-                if (st.done) {
-                    startActivity(Intent(this@OnboardingActivity, MainActivity::class.java))
-                    finish()
+                    if (st.done) {
+                        startActivity(Intent(this@OnboardingActivity, MainActivity::class.java))
+                        finish()
+                    }
                 }
             }
         }

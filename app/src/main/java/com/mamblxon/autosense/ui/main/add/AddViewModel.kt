@@ -9,10 +9,13 @@ import com.mamblxon.autosense.domain.model.ServiceItem
 import com.mamblxon.autosense.domain.usecase.ServiceUseCase
 import com.mamblxon.autosense.domain.usecase.ValidationResult
 import com.mamblxon.autosense.prefs.AppPrefs
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Поля формы «Добавить ТО». Значения — сырые строки из TextInputEditText,
@@ -55,6 +58,13 @@ class AddViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _state = MutableStateFlow(AddUiState())
     val state: StateFlow<AddUiState> = _state.asStateFlow()
+
+    /**
+     * Атомарный guard от race condition двойного нажатия «Сохранить»:
+     * compareAndSet гарантирует, что второй клик за 100 мс не запустит
+     * вторую корутину и не создаст дубликат записи.
+     */
+    private val savingGuard = AtomicBoolean(false)
 
     init {
         viewModelScope.launch {
@@ -103,60 +113,77 @@ class AddViewModel(app: Application) : AndroidViewModel(app) {
     fun save(onResult: (SaveOutcome) -> Unit) {
         val st = _state.value
         val form = st.form
-        if (st.isSaving) return
 
-        when (val v = validate(form)) {
-            is ValidationResult.Invalid -> {
-                onResult(SaveOutcome.Failure(v.error))
+        // Атомарная проверка-захват: второй клик за 100 мс не пройдёт,
+        // даже если первый ещё не успел выставить isSaving в состоянии.
+        if (!savingGuard.compareAndSet(false, true)) return
+
+        try {
+            when (val v = validate(form)) {
+                is ValidationResult.Invalid -> {
+                    savingGuard.set(false)
+                    onResult(SaveOutcome.Failure(v.error))
+                    return
+                }
+                ValidationResult.Valid -> Unit
+            }
+
+            val profileId = prefs.currentProfileId
+            if (profileId <= 0L) {
+                savingGuard.set(false)
+                onResult(SaveOutcome.Failure("Сначала создай профиль автомобиля"))
                 return
             }
-            ValidationResult.Valid -> Unit
-        }
 
-        val profileId = prefs.currentProfileId
-        if (profileId <= 0L) {
-            onResult(SaveOutcome.Failure("Сначала создай профиль автомобиля"))
-            return
-        }
+            _state.value = st.copy(isSaving = true)
+            viewModelScope.launch {
+                try {
+                    val km = form.intervalKm.trim().toIntOrNull() ?: 0
+                    val months = form.intervalMonths.trim().toIntOrNull() ?: 0
+                    val lastServiceKm = if (km > 0) (st.currentKm - km).coerceAtLeast(0) else 0
+                    val lastDateMillis: Long = if (form.lastDate.isBlank()) {
+                        System.currentTimeMillis()
+                    } else {
+                        useCase.parseDate(form.lastDate)?.time ?: System.currentTimeMillis()
+                    }
 
-        _state.value = st.copy(isSaving = true)
-        viewModelScope.launch {
-            try {
-                val km = form.intervalKm.trim().toIntOrNull() ?: 0
-                val months = form.intervalMonths.trim().toIntOrNull() ?: 0
-                val lastServiceKm = if (km > 0) (st.currentKm - km).coerceAtLeast(0) else 0
-                val lastDateMillis = if (form.lastDate.isBlank()) {
-                    System.currentTimeMillis()
-                } else {
-                    useCase.parseDate(form.lastDate) ?: System.currentTimeMillis()
+                    val base = ServiceItem(
+                        profileId = profileId,
+                        car = st.carName,
+                        name = form.name.trim(),
+                        category = "Прочее",
+                        intervalKm = km,
+                        intervalMonths = months,
+                        lastServiceKm = lastServiceKm,
+                        lastServiceDateMillis = lastDateMillis,
+                        currentKm = st.currentKm,
+                        notes = if (form.cost.isNotBlank()) {
+                            "Стоимость последнего ТО: ${form.cost.trim()} ₽"
+                        } else ""
+                    )
+                    val item = base.copy(urgency = useCase.computeUrgency(base))
+                    repo.insertItems(listOf(item))
+                    _state.value = _state.value.copy(isSaving = false, message = "Запись добавлена")
+                    onResult(SaveOutcome.Success)
+                } catch (t: Throwable) {
+                    Log.e("AutoSense", "Failed to save service item", t)
+                    _state.value = _state.value.copy(
+                        isSaving = false,
+                        message = "Не удалось сохранить запись"
+                    )
+                    onResult(SaveOutcome.Failure("Не удалось сохранить запись"))
+                } finally {
+                    // Сбрасываем guard в finally — иначе исключение между
+                    // try/catch оставило бы кнопку «Сохранить» заблокированной навсегда.
+                    withContext(NonCancellable) { savingGuard.set(false) }
                 }
-
-                val base = ServiceItem(
-                    profileId = profileId,
-                    car = st.carName,
-                    name = form.name.trim(),
-                    category = "Прочее",
-                    intervalKm = km,
-                    intervalMonths = months,
-                    lastServiceKm = lastServiceKm,
-                    lastServiceDateMillis = lastDateMillis,
-                    currentKm = st.currentKm,
-                    notes = if (form.cost.isNotBlank()) {
-                        "Стоимость последнего ТО: ${form.cost.trim()} ₽"
-                    } else ""
-                )
-                val item = base.copy(urgency = useCase.computeUrgency(base))
-                repo.insertItems(listOf(item))
-                _state.value = _state.value.copy(isSaving = false, message = "Запись добавлена")
-                onResult(SaveOutcome.Success)
-            } catch (t: Throwable) {
-                Log.e("AutoSense", "Failed to save service item", t)
-                _state.value = _state.value.copy(
-                    isSaving = false,
-                    message = "Не удалось сохранить запись"
-                )
-                onResult(SaveOutcome.Failure("Не удалось сохранить запись"))
             }
+        } catch (t: Throwable) {
+            // Синхронный сбой до запуска корутины — освобождаем guard здесь.
+            savingGuard.set(false)
+            Log.e("AutoSense", "Failed to start save", t)
+            _state.value = _state.value.copy(isSaving = false)
+            throw t
         }
     }
 }
