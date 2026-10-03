@@ -131,7 +131,7 @@ class MainActivity : AppCompatActivity(), SwipeActionHandler {
         // Свайп-действия: влево — удаление с undo, вправо — редактирование.
         adapter.attachToRecyclerView(binding.recycler)
 
-        binding.fabUpdateKm.setOnClickListener { showAddItemDialog() }
+        binding.fabUpdateKm.setOnClickListener { showUpdateKmDialog() }
 
         binding.emptyAddButton.setOnClickListener { showAddItemDialog() }
 
@@ -297,6 +297,10 @@ class MainActivity : AppCompatActivity(), SwipeActionHandler {
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         return when (item.itemId) {
+            R.id.action_add_service -> {
+                showAddItemDialog()
+                true
+            }
             R.id.action_issues -> {
                 startActivity(
                     Intent(this, com.mamblxon.autosense.ui.issues.CarIssuesActivity::class.java)
