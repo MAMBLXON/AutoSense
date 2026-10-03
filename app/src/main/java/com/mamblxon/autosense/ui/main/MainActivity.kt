@@ -382,10 +382,30 @@ class MainActivity : AppCompatActivity(), SwipeActionHandler {
             this.text = text
             isCheckable = false
             closeIcon = ContextCompat.getDrawable(this@MainActivity, androidx.appcompat.R.drawable.abc_ic_clear_material)
-            setCloseIconOnClickListener { onRemove() }
+            // Material 1.12 не предоставляет setCloseIconOnClickListener —
+            // реагируем на тап по правой части чипа (где рисуется иконка «×»).
+            setOnClickListener { v ->
+                if (v.width > 0 && lastTouchX >= v.width - closeIconZoneDp * resources.displayMetrics.density) {
+                    onRemove()
+                }
+            }
+            setOnTouchListener { _, event ->
+                when (event.actionMasked) {
+                    android.view.MotionEvent.ACTION_DOWN,
+                    android.view.MotionEvent.ACTION_MOVE -> lastTouchX = event.x
+                    android.view.MotionEvent.ACTION_UP -> lastTouchX = event.x
+                }
+                false
+            }
             setEnsureMinTouchTargetSize(false)
         }
     }
+
+    /** Позиция последнего касания внутри чипа — для определения тапа по «×». */
+    private var lastTouchX: Float = -1f
+
+    /** Ширина зоны «×» справа чипа, по тапу в которой фильтр снимается (dp). */
+    private val closeIconZoneDp = 32f
 
     /** Диалог «Фильтр»: чекбоксы по типам работ, несколько одновременно. */
     private fun showTypeFilterDialog() {
@@ -589,8 +609,8 @@ class MainActivity : AppCompatActivity(), SwipeActionHandler {
             return result !is com.mamblxon.autosense.domain.usecase.ValidationResult.Invalid
         }
 
-        /** Полная проверка формы; возвращает текст ошибки или null, если всё валидно. */
-        fun validateForm(): String? {
+        /** Полная проверка формы; возвращает true, если всё валидно. */
+        fun validateForm(): Boolean {
             var ok = true
             ok = validateField(b.tilName, editUseCase.validateName(b.etName.text?.toString().orEmpty())) && ok
             val kmText = b.etIntervalKm.text?.toString().orEmpty()
@@ -605,7 +625,7 @@ class MainActivity : AppCompatActivity(), SwipeActionHandler {
             }
             ok = validateField(b.tilLastDate, editUseCase.validateDateNotFuture(b.etLastDate.text?.toString().orEmpty())) && ok
             ok = validateField(b.tilCost, editUseCase.validateCost(b.etCost.text?.toString().orEmpty())) && ok
-            if (ok) null else "Исправь ошибки в полях"
+            return ok
         }
 
         // Живая валидация: «Сохранить» серая, пока все поля не заполнены корректно.
@@ -614,9 +634,8 @@ class MainActivity : AppCompatActivity(), SwipeActionHandler {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
             override fun afterTextChanged(s: android.text.Editable?) {
-                validateForm()
                 dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE)?.isEnabled =
-                    validateForm() == null
+                    validateForm()
             }
         }
         fields.forEach { it.addTextChangedListener(afterTextChanged) }
@@ -624,12 +643,12 @@ class MainActivity : AppCompatActivity(), SwipeActionHandler {
         dialog.setOnShowListener {
             // Валидируем сразу: если предзаполненные данные некорректны — кнопка неактивна.
             dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).isEnabled =
-                validateForm() == null
+                validateForm()
 
             dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE)
                 .setOnClickListener {
                     // Гвард на случай гонки: не сохраняем при невалидном вводе.
-                    if (validateForm() != null) return@setOnClickListener
+                    if (!validateForm()) return@setOnClickListener
 
                     val dateText = b.etLastDate.text?.toString().orEmpty().trim()
                     viewModel.onEvent(

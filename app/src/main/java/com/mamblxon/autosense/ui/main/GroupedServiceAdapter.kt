@@ -61,10 +61,11 @@ class GroupedServiceAdapter(
                 target: RecyclerView.ViewHolder
             ): Boolean = false
 
-            override fun isValidDropTarget(target: RecyclerView.ViewHolder?) =
-                target != null && rowItemPosition(target) >= 0
+            override fun isSwipeEnabled(viewHolder: RecyclerView.ViewHolder): Boolean =
+                rowItemPosition(viewHolder) >= 0
 
             override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
+                if (!isSwipeEnabled(viewHolder)) return
                 val pos = rowItemPosition(viewHolder)
                 if (pos < 0) return
                 val item = (getItem(pos) as ServiceListItem.Row).item
@@ -108,7 +109,7 @@ class GroupedServiceAdapter(
     // ---------- Визуальная обратная связь свайпа ----------
 
     private val swipePaint = Paint()
-    private val swipeIconRect = RectF()
+    private val swipeIconRect = android.graphics.Rect()
 
     private fun drawSwipeFeedback(c: Canvas, itemView: android.view.View, dX: Float) {
         val ctx = itemView.context
@@ -147,8 +148,8 @@ class GroupedServiceAdapter(
         val cx = if (isDelete) right - revealedWidth / 2f else left + revealedWidth / 2f
         val cy = (top + bottom) / 2f
         swipeIconRect.set(
-            (cx - size / 2f), (cy - size / 2f),
-            (cx + size / 2f), (cy + size / 2f)
+            (cx - size / 2f).roundToInt(), (cy - size / 2f).roundToInt(),
+            (cx + size / 2f).roundToInt(), (cy + size / 2f).roundToInt()
         )
         icon.bounds = swipeIconRect
         icon.alpha = (alpha * 255).roundToInt()

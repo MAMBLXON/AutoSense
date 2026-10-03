@@ -2,16 +2,23 @@ package com.mamblxon.autosense.ui.main.add
 
 import android.os.Bundle
 import android.text.InputFilter
+import android.text.Spanned
 import android.util.Log
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.widget.doAfterTextChanged
 import androidx.lifecycle.lifecycleScope
+import com.google.android.material.datepicker.CalendarConstraints
+import com.google.android.material.datepicker.CompositeDateValidator
+import com.google.android.material.datepicker.DateValidatorPointBackward
+import com.google.android.material.datepicker.MaterialDatePicker
 import com.google.android.material.textfield.TextInputLayout
 import com.mamblxon.autosense.databinding.ActivityAddBinding
 import com.mamblxon.autosense.domain.usecase.ServiceUseCase
 import com.mamblxon.autosense.domain.usecase.ValidationResult
 import com.mamblxon.autosense.ui.common.AppDialogs
+import java.text.SimpleDateFormat
+import java.util.Locale
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
@@ -33,8 +40,9 @@ class AddActivity : AppCompatActivity() {
 
         binding.toolbar.setNavigationOnClickListener { finish() }
 
-        // Автоформат ДД.ММ.ГГГГ
+        // Автоформат ДД.ММ.ГГГГ + выбор даты тапом по иконке календаря
         binding.etDate.filters = arrayOf(InputFilter.LengthFilter(10), DateMaskInputFilter())
+        binding.tilDate.setEndIconOnClickListener { showDatePicker() }
 
         // Живая валидация: при каждом изменении пересчитываем canSave
         listOf(binding.etName, binding.etIntervalKm, binding.etIntervalMonths, binding.etDate, binding.etCost)
@@ -116,6 +124,29 @@ class AddActivity : AppCompatActivity() {
         }
     }
 
+    /** Диалог выбора даты; будущие даты заблокированы (валидация 1В). */
+    private fun showDatePicker() {
+        val picker = MaterialDatePicker.Builder.datePicker()
+            .setTitleText("Дата последнего ТО")
+            .setCalendarConstraints(
+                CalendarConstraints.Builder()
+                    .setValidator(
+                        CompositeDateValidator.allOf(
+                            listOf(DateValidatorPointBackward.now())
+                        )
+                    )
+                    .build()
+            )
+            .build()
+        picker.addOnPositiveButtonClickListener { millis ->
+            // UTC-миллисекунды от MaterialDatePicker → локальная дата в поле.
+            binding.etDate.setText(
+                SimpleDateFormat("dd.MM.yyyy", Locale.getDefault()).format(java.util.Date(millis))
+            )
+        }
+        picker.show(supportFragmentManager, "add_date_picker")
+    }
+
     /** true — поле валидно; false — показана ошибка. */
     private fun showError(layout: TextInputLayout, result: ValidationResult): Boolean {
         return when (result) {
@@ -137,7 +168,7 @@ class AddActivity : AppCompatActivity() {
     private class DateMaskInputFilter : InputFilter {
         override fun filter(
             source: CharSequence, start: Int, end: Int,
-            dest: CharSequence, dstart: Int, dend: Int
+            dest: Spanned, dstart: Int, dend: Int
         ): CharSequence {
             val old = dest.toString()
 
