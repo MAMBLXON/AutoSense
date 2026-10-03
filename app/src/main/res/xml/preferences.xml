@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <PreferenceCategory
+        app:title="Уведомления">
+
+        <SwitchPreferenceCompat
+            app:key="notifications_enabled"
+            app:title="Показывать уведомления"
+            app:summary="Напоминания о приближающихся и просроченных ТО"
+            app:defaultValue="true" />
+
+        <ListPreference
+            app:key="check_period_hours"
+            app:title="Период проверки"
+            app:summary="Как часто проверять статусы ТО"
+            app:entries="@array/period_labels"
+            app:entryValues="@array/period_values"
+            app:defaultValue="24" />
+
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        app:title="Порог срочности">
+
+        <SeekBarPreference
+            app:key="yellow_threshold"
+            app:title="Порог жёлтого"
+            app:summary="Насколько близко к интервалу считать ТО срочным"
+            android:max="49"
+            app:min="0"
+            app:defaultValue="30"
+            app:showSeekBarValue="true" />
+
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        app:title="О приложении">
+
+        <Preference
+            app:title="Версия"
+            app:summary="1.0" />
+
+        <Preference
+            app:key="action_reset"
+            app:title="Сбросить все данные"
+            app:summary="Удалить все ТО и историю" />
+
+    </PreferenceCategory>
+
+</PreferenceScreen>

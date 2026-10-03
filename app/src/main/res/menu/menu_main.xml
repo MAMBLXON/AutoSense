@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <item
+        android:id="@+id/action_search"
+        android:title="Поиск"
+        android:icon="@android:drawable/ic_menu_search"
+        app:actionViewClass="androidx.appcompat.widget.SearchView"
+        app:showAsAction="always|collapseActionView" />
+
+    <item
+        android:id="@+id/action_issues"
+        android:title="Особенности авто"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_history"
+        android:title="Вся история"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_check_now"
+        android:title="Проверить сейчас"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_change_car"
+        android:title="Мои автомобили"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_settings"
+        android:title="Настройки"
+        app:showAsAction="never" />
+
+</menu>

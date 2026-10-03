@@ -1,0 +1,41 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="96dp"
+    android:height="96dp"
+    android:viewportWidth="96"
+    android:viewportHeight="96">
+
+    <!-- Документ с лупой — символ "ничего не найдено" -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FF888888"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M20,20 L56,20 L72,36 L72,76 L20,76 Z" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FF888888"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:pathData="M56,20 L56,36 L72,36" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FF888888"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:pathData="M34,48 L58,48 M34,58 L50,58" />
+
+    <!-- Лупа -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FF888888"
+        android:strokeWidth="3"
+        android:pathData="M74,74 m-10,0 a10,10 0 1,0 20,0 a10,10 0 1,0 -20,0" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FF888888"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:pathData="M81,81 L88,88" />
+
+</vector>

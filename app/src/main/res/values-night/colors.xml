@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Brand: в тёмной теме primary чуть светлее для контраста -->
+    <color name="primary">#4CAF7D</color>
+    <color name="on_primary">#00391F</color>
+    <color name="primary_container">#2D6A4F</color>
+    <color name="on_primary_container">#A8D5BA</color>
+
+    <color name="secondary">#7AB99A</color>
+    <color name="on_secondary">#003820</color>
+
+    <!-- Backgrounds: True Black для OLED -->
+    <color name="background">#121212</color>
+    <color name="on_background">#E6E6E6</color>
+    <color name="surface">#1E1E1E</color>
+    <color name="on_surface">#E6E6E6</color>
+    <color name="surface_variant">#2A2A2A</color>
+    <color name="on_surface_variant">#B8B8B8</color>
+    <color name="outline">#6E716E</color>
+
+    <!-- Semantic -->
+    <color name="error">#CF6679</color>
+    <color name="on_error">#37000A</color>
+    <color name="success">#66BB6A</color>
+    <color name="warning">#FFCA28</color>
+
+    <!-- Statuses в тёмной теме светлее -->
+    <color name="urgency_green">#66BB6A</color>
+    <color name="urgency_yellow">#FFCA28</color>
+    <color name="urgency_red">#CF6679</color>
+</resources>

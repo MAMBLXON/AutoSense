@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.material.card.MaterialCardView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/card"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginHorizontal="12dp"
+    android:transitionName="service_card"
+    android:layout_marginVertical="6dp"
+    android:clickable="true"
+    android:focusable="true"
+    app:cardCornerRadius="16dp"
+    app:cardElevation="2dp"
+    app:cardBackgroundColor="?attr/colorSurface"
+    app:rippleColor="?attr/colorPrimary"
+    app:strokeWidth="0dp">
+
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="16dp">
+
+        <com.google.android.material.progressindicator.CircularProgressIndicator
+            android:id="@+id/progress"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:indeterminate="false"
+            android:max="100"
+            app:indicatorSize="48dp"
+            app:trackThickness="4dp"
+            app:trackCornerRadius="2dp"
+            app:indicatorColor="@color/urgency_green"
+            app:trackColor="?attr/colorSurfaceVariant"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            tools:progress="45" />
+
+        <TextView
+            android:id="@+id/progressLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:textColor="?attr/colorOnSurface"
+            app:layout_constraintTop_toTopOf="@id/progress"
+            app:layout_constraintBottom_toBottomOf="@id/progress"
+            app:layout_constraintStart_toStartOf="@id/progress"
+            app:layout_constraintEnd_toEndOf="@id/progress"
+            tools:text="45%" />
+
+        <TextView
+            android:id="@+id/name"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:maxLines="2"
+            android:ellipsize="end"
+            android:textColor="?attr/colorOnSurface"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintStart_toEndOf="@id/progress"
+            app:layout_constraintEnd_toEndOf="parent"
+            tools:text="Замена моторного масла" />
+
+        <TextView
+            android:id="@+id/subtitle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:layout_marginTop="4dp"
+            android:textSize="13sp"
+            android:alpha="0.7"
+            android:maxLines="2"
+            android:ellipsize="end"
+            android:textColor="?attr/colorOnSurface"
+            app:layout_constraintTop_toBottomOf="@id/name"
+            app:layout_constraintStart_toEndOf="@id/progress"
+            app:layout_constraintEnd_toEndOf="parent"
+            tools:text="Toyota · каждые 10000 км / 12 мес · тек. 8500 км" />
+
+        <TextView
+            android:id="@+id/statusBadge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:layout_marginTop="8dp"
+            android:paddingHorizontal="8dp"
+
+            android:paddingVertical="2dp"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:textAllCaps="true"
+            android:background="@drawable/badge_background"
+            app:layout_constraintTop_toBottomOf="@id/subtitle"
+            app:layout_constraintStart_toEndOf="@id/progress"
+            app:layout_constraintBottom_toBottomOf="parent"
+            tools:text="OK" />
+
+    </androidx.constraintlayout.widget.ConstraintLayout>
+
+</com.google.android.material.card.MaterialCardView>

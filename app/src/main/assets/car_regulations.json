@@ -1,0 +1,24 @@
+{
+  "regulations": [
+    {
+      "car": "Toyota",
+      "model": "Camry 2.5",
+      "services": [
+        { "name": "Замена моторного масла",     "intervalKm": 10000,  "intervalMonths": 12 },
+        { "name": "Замена воздушного фильтра",  "intervalKm": 30000,  "intervalMonths": 24 },
+        { "name": "Замена тормозной жидкости",  "intervalKm": 60000,  "intervalMonths": 36 },
+        { "name": "Замена свечей зажигания",    "intervalKm": 100000, "intervalMonths": 60 }
+      ]
+    },
+    {
+      "car": "BMW",
+      "model": "320i",
+      "services": [
+        { "name": "Замена моторного масла",     "intervalKm": 15000,  "intervalMonths": 12 },
+        { "name": "Замена воздушного фильтра",  "intervalKm": 40000,  "intervalMonths": 24 },
+        { "name": "Замена тормозной жидкости",  "intervalKm": 60000,  "intervalMonths": 24 },
+        { "name": "Замена ремня ГРМ",           "intervalKm": 120000, "intervalMonths": 72 }
+      ]
+    }
+  ]
+}
