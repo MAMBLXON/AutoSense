@@ -10,6 +10,17 @@
         app:showAsAction="always|collapseActionView" />
 
     <item
+        android:id="@+id/action_filter"
+        android:title="Фильтр"
+        android:icon="@android:drawable/ic_menu_sort_by_size"
+        app:showAsAction="ifRoom" />
+
+    <item
+        android:id="@+id/action_sort"
+        android:title="Сортировка"
+        app:showAsAction="never" />
+
+    <item
         android:id="@+id/action_issues"
         android:title="Особенности авто"
         app:showAsAction="never" />

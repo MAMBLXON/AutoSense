@@ -59,6 +59,41 @@
 
     </com.google.android.material.textfield.TextInputLayout>
 
+    <com.google.android.material.textfield.TextInputLayout
+        android:id="@+id/tilLastDate"
+        style="@style/Widget.AutoSense.TextInputLayout"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:hint="Дата последнего ТО (ДД.ММ.ГГГГ)">
+
+        <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/etLastDate"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="date"
+            android:digits="0123456789."
+            android:maxLines="1" />
+
+    </com.google.android.material.textfield.TextInputLayout>
+
+    <com.google.android.material.textfield.TextInputLayout
+        android:id="@+id/tilCost"
+        style="@style/Widget.AutoSense.TextInputLayout"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:hint="Стоимость последнего ТО, ₽">
+
+        <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/etCost"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="number"
+            android:maxLines="1" />
+
+    </com.google.android.material.textfield.TextInputLayout>
+
     <TextView
         android:id="@+id/tvHint"
         android:layout_width="match_parent"
@@ -67,6 +102,6 @@
         android:textSize="12sp"
         android:alpha="0.7"
         android:textColor="?attr/colorOnSurfaceVariant"
-        android:text="Если интервал не важен, оставь 0." />
+        android:text="Если интервал не важен, оставь 0. Дата и стоимость — необязательны." />
 
 </LinearLayout>

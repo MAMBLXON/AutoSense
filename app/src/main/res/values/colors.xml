@@ -28,4 +28,8 @@
     <color name="urgency_green">#2E7D32</color>
     <color name="urgency_yellow">#F9A825</color>
     <color name="urgency_red">#B00020</color>
+
+    <!-- Swipe actions -->
+    <color name="swipe_delete">#B3261E</color>
+    <color name="swipe_edit">#1565C0</color>
 </resources>

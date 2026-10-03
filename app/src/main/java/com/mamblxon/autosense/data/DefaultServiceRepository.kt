@@ -34,6 +34,9 @@ class DefaultServiceRepository(
     override suspend fun getItemsOnce(profileId: Long): List<ServiceItem> =
         serviceDao.getAllOnceByProfile(profileId)
 
+    override suspend fun searchItems(profileId: Long, query: String): List<ServiceItem> =
+        serviceDao.searchByTitle(profileId, query.trim())
+
     override suspend fun getItemById(id: Long): ServiceItem? =
         serviceDao.getById(id)
 
@@ -42,6 +45,9 @@ class DefaultServiceRepository(
 
     override suspend fun insertItems(items: List<ServiceItem>) =
         serviceDao.insertAll(items)
+
+    override suspend fun insertItem(item: ServiceItem): Long =
+        serviceDao.insert(item)
 
     override suspend fun updateItem(item: ServiceItem) =
         serviceDao.update(item)

@@ -38,6 +38,21 @@ class AppPrefs(context: Context) {
         get() = sp.getBoolean(KEY_NOTIF_ASKED, false)
         set(value) = sp.edit().putBoolean(KEY_NOTIF_ASKED, value).apply()
 
+    // ---- Сортировка списка ТО (значения — имена enum SortOrder, чтобы prefs не зависел от UI-слоя) ----
+    var sortOrderName: String
+        get() = sp.getString(KEY_SORT_ORDER, DEFAULT_SORT_ORDER) ?: DEFAULT_SORT_ORDER
+        set(value) = sp.edit().putString(KEY_SORT_ORDER, value).apply()
+
+    /** Сохранённая сортировка; по умолчанию — «По дате (новые сначала)». */
+    val sortOrder: com.mamblxon.autosense.ui.main.SortOrder
+        get() = runCatching {
+            com.mamblxon.autosense.ui.main.SortOrder.valueOf(sortOrderName)
+        }.getOrDefault(com.mamblxon.autosense.ui.main.SortOrder.DATE_DESC)
+
+    fun setSortOrder(order: com.mamblxon.autosense.ui.main.SortOrder) {
+        sortOrderName = order.name
+    }
+
     // ---- Пробег по профилю ----
     fun getLastKm(profileId: Long): Int =
         sp.getInt("${KEY_LAST_KM}__$profileId", 0)
@@ -69,6 +84,10 @@ class AppPrefs(context: Context) {
         const val KEY_NOTIF_ASKED = "notif_permission_asked"
         const val KEY_LAST_KM = "last_km"
         const val KEY_LAST_KM_UPDATE = "last_km_update"
+        const val KEY_SORT_ORDER = "sort_order"
+
+        /** Значение по умолчанию: «По дате (новые сначала)». */
+        const val DEFAULT_SORT_ORDER = "DATE_DESC"
 
         const val DEFAULT_YELLOW_THRESHOLD = 0.8f
         const val DEFAULT_PERIOD_HOURS = 24

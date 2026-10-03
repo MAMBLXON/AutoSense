@@ -57,6 +57,26 @@
 
         </com.google.android.material.chip.ChipGroup>
 
+        <!-- Активные фильтры (тип работ / сортировка) — чипы под toolbar -->
+        <HorizontalScrollView
+            android:id="@+id/activeFiltersScroll"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:scrollbars="none"
+            android:visibility="gone"
+            tools:visibility="visible">
+
+            <com.google.android.material.chip.ChipGroup
+                android:id="@+id/chipGroupActiveFilters"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingHorizontal="12dp"
+                android:paddingBottom="8dp"
+                app:chipSpacingHorizontal="8dp"
+                app:singleLine="true" />
+
+        </HorizontalScrollView>
+
     </com.google.android.material.appbar.AppBarLayout>
 
     <androidx.recyclerview.widget.RecyclerView
@@ -105,6 +125,15 @@
             android:textSize="14sp"
             android:alpha="0.7"
             android:textColor="?attr/colorOnSurface" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/emptyAddButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="Добавить первую запись"
+            android:visibility="gone"
+            tools:visibility="visible" />
 
     </LinearLayout>
 
