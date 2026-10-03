@@ -33,6 +33,16 @@ interface ServiceDao {
     @Query("SELECT * FROM service_items WHERE profileId = :profileId ORDER BY urgency DESC, name ASC")
     suspend fun getAllOnceByProfile(profileId: Long): List<ServiceItem>
 
+    /**
+     * Поиск по названию ТО (title/name) в рамках профиля.
+     * Пустая строка запроса -> все записи (LIKE '%%' совпадает с любым названием).
+     */
+    @Query(
+        "SELECT * FROM service_items WHERE profileId = :profileId AND name LIKE '%' || :query || '%' " +
+            "ORDER BY lastServiceDateMillis DESC"
+    )
+    suspend fun searchByTitle(profileId: Long, query: String): List<ServiceItem>
+
     @Query("SELECT * FROM service_items WHERE id = :id LIMIT 1")
     suspend fun getById(id: Long): ServiceItem?
 

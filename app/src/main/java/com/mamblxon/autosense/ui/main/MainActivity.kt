@@ -40,13 +40,14 @@ import com.mamblxon.autosense.ui.common.AppDialogs
 import com.mamblxon.autosense.ui.main.detail.DetailActivity
 import com.mamblxon.autosense.ui.profiles.ProfilesActivity
 import com.mamblxon.autosense.ui.settings.SettingsActivity
+import com.google.android.material.textfield.TextInputLayout
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : AppCompatActivity(), SwipeActionHandler {
 
     private lateinit var binding: ActivityMainBinding
     private val viewModel: MainViewModel by viewModels()
@@ -55,7 +56,8 @@ class MainActivity : AppCompatActivity() {
             Log.d("AutoSense", "onClick item id=${item.id} name=${item.name}")
             openDetail(item)
         },
-        onLongClick = { item -> showItemMenu(item) }
+        onLongClick = { item -> showItemMenu(item) },
+        swipeHandler = this
     )
 
     private val prefs by lazy { AppPrefs(this) }
@@ -131,6 +133,8 @@ class MainActivity : AppCompatActivity() {
         }
         binding.recycler.isClickable = true
         binding.recycler.isFocusable = true
+        // Свайп-действия: влево — удаление с undo, вправо — редактирование.
+        adapter.attachToRecyclerView(binding.recycler)
 
         binding.fabUpdateKm.setOnClickListener { showAddItemDialog() }
 
@@ -308,6 +312,14 @@ class MainActivity : AppCompatActivity() {
                 AppDialogs.toast(this, "Проверка запущена")
                 true
             }
+            R.id.action_filter -> {
+                showTypeFilterDialog()
+                true
+            }
+            R.id.action_sort -> {
+                showSortDialog()
+                true
+            }
             R.id.action_change_car -> {
                 startActivity(Intent(this, ProfilesActivity::class.java))
                 true
@@ -339,6 +351,95 @@ class MainActivity : AppCompatActivity() {
         if (binding.chipGroup.checkedChipId != targetId) {
             binding.chipGroup.check(targetId)
         }
+
+        renderActiveFilterChips(st)
+    }
+
+    /** Чипы активных фильтров под toolbar: тип работ + сортировка (с кнопкой «×»). */
+    private fun renderActiveFilterChips(st: ServiceUiState) {
+        val group = binding.chipGroupActiveFilters
+        group.removeAllViews()
+
+        st.typeFilter.sorted().forEach { type ->
+            group.addView(makeRemovableChip(type.label) {
+                val next = viewModel.state.value.typeFilter - type
+                scrollToTopOnNextRender = true
+                viewModel.onEvent(UiEvent.SetTypeFilter(next))
+            })
+        }
+
+        if (st.sortOrder != SortOrder.DATE_DESC) {
+            group.addView(makeRemovableChip("Сортировка: ${st.sortOrder.label}") {
+                viewModel.onEvent(UiEvent.SetSortOrder(SortOrder.DATE_DESC))
+            })
+        }
+
+        binding.activeFiltersScroll.isVisible = group.childCount > 0
+    }
+
+    private fun makeRemovableChip(text: String, onRemove: () -> Unit): com.google.android.material.chip.Chip {
+        return com.google.android.material.chip.Chip(this).apply {
+            this.text = text
+            isCheckable = false
+            closeIcon = ContextCompat.getDrawable(this@MainActivity, androidx.appcompat.R.drawable.abc_ic_clear_material)
+            setCloseIconOnClickListener { onRemove() }
+            setEnsureMinTouchTargetSize(false)
+        }
+    }
+
+    /** Диалог «Фильтр»: чекбоксы по типам работ, несколько одновременно. */
+    private fun showTypeFilterDialog() {
+        lifecycleScope.launch {
+            val counts = viewModel.itemTypeCounts()
+            val types = ServiceType.entries.toTypedArray()
+            val current = viewModel.state.value.typeFilter
+            val initial = BooleanArray(types.size) { types[it] in current }
+            val labels = types.map { t ->
+                val c = counts[t] ?: 0
+                if (c > 0) "${t.label} ($c)" else t.label
+            }.toTypedArray()
+
+            AppDialogs.showMultiChoice(
+                context = this@MainActivity,
+                title = "Фильтр по типу работ",
+                items = labels,
+                checked = initial,
+                positiveText = "Применить",
+                negativeText = "Сбросить",
+                onApply = { picks ->
+                    scrollToTopOnNextRender = true
+                    viewModel.onEvent(UiEvent.SetTypeFilter(pickedTypes(types, picks)))
+                },
+                onReset = {
+                    scrollToTopOnNextRender = true
+                    viewModel.onEvent(UiEvent.SetTypeFilter(emptySet()))
+                }
+            )
+        }
+    }
+
+    private fun pickedTypes(types: Array<ServiceType>, picks: BooleanArray): Set<ServiceType> =
+        picks.indices.mapNotNull { i -> if (picks[i]) types[i] else null }.toSet()
+
+    /** Меню сортировки: дата/пробег, направление; выбор сохраняется в SharedPreferences. */
+    private fun showSortDialog() {
+        val orders = SortOrder.entries.toTypedArray()
+        val labels = orders.map { it.label }.toTypedArray()
+        val current = viewModel.state.value.sortOrder
+
+        AppDialogs.showSingleChoice(
+            context = this,
+            title = "Сортировка",
+            options = labels,
+            checkedIndex = orders.indexOf(current),
+            onPick = { which ->
+                val order = orders[which]
+                if (order != current) {
+                    scrollToTopOnNextRender = true
+                    viewModel.onEvent(UiEvent.SetSortOrder(order))
+                }
+            }
+        )
     }
 
     private fun renderEmptyState(st: ServiceUiState) {
@@ -429,6 +530,127 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // =========================================================
+    // Свайп-действия (ItemTouchHelper)
+    // =========================================================
+
+    /** Свайп влево: удаляем запись и даём 4 секунды на «Отменить». */
+    override fun onSwipeDelete(item: ServiceItem) {
+        viewModel.deleteItem(item)
+        AppDialogs.snackbarWithAction(
+            view = binding.root,
+            text = "Запись удалена",
+            actionLabel = "Отменить",
+            durationMs = 4000
+        ) {
+            // Пользователь нажал «Отменить» — восстанавливаем запись в базе.
+            viewModel.onEvent(UiEvent.RestoreItem(item))
+        }
+    }
+
+    /** Свайп вправо: открываем диалог редактирования с заполненными полями. */
+    override fun onSwipeEdit(item: ServiceItem) {
+        showEditItemDialog(item)
+    }
+
+    private val editUseCase = com.mamblxon.autosense.domain.usecase.ServiceUseCase()
+
+    /** Извлечение стоимости из заметки вида «Стоимость последнего ТО: 5000 ₽». */
+    private val costRegex = Regex("Стоимость последнего ТО:\\s*(\\d+)")
+
+    /**
+     * Диалог редактирования записи: long click по элементу списка или свайп вправо.
+     * Поля предзаполнены текущими данными; валидация — та же, что и при создании
+     * (пункт 1В): название ≥ 2 символов, интервалы числовые и хотя бы один > 0,
+     * дата в формате ДД.ММ.ГГГГ и не в будущем, стоимость — число > 0.
+     * Кнопка «Сохранить» неактивна (серая), пока все поля не валидны.
+     */
+    private fun showEditItemDialog(item: ServiceItem) {
+        val b = com.mamblxon.autosense.databinding.DialogEditItemBinding.inflate(layoutInflater)
+
+        // Предзаполнение текущими данными записи.
+        b.etName.setText(item.name)
+        b.etIntervalKm.setText(if (item.intervalKm > 0) item.intervalKm.toString() else "")
+        b.etIntervalMonths.setText(if (item.intervalMonths > 0) item.intervalMonths.toString() else "")
+        b.etLastDate.setText(
+            SimpleDateFormat("dd.MM.yyyy", Locale.getDefault()).format(Date(item.lastServiceDateMillis))
+        )
+        costRegex.find(item.notes)?.groupValues?.getOrNull(1)?.let { b.etCost.setText(it) }
+
+        val dialog = com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            .setTitle("Редактировать работу")
+            .setView(b.root)
+            .setPositiveButton("Сохранить", null)
+            .setNegativeButton("Отмена", null)
+            .create()
+
+        fun validateField(layout: TextInputLayout, result: com.mamblxon.autosense.domain.usecase.ValidationResult): Boolean {
+            layout.error = if (result is com.mamblxon.autosense.domain.usecase.ValidationResult.Invalid) result.error else null
+            return result !is com.mamblxon.autosense.domain.usecase.ValidationResult.Invalid
+        }
+
+        /** Полная проверка формы; возвращает текст ошибки или null, если всё валидно. */
+        fun validateForm(): String? {
+            var ok = true
+            ok = validateField(b.tilName, editUseCase.validateName(b.etName.text?.toString().orEmpty())) && ok
+            val kmText = b.etIntervalKm.text?.toString().orEmpty()
+            val monthsText = b.etIntervalMonths.text?.toString().orEmpty()
+            val kmValid = validateField(b.tilIntervalKm, editUseCase.validateIntervalKm(kmText))
+            val monthsValid = validateField(b.tilIntervalMonths, editUseCase.validateIntervalMonths(monthsText))
+            ok = kmValid && monthsValid && ok
+            if (kmValid && monthsValid && !editUseCase.hasPositiveInterval(kmText, monthsText)) {
+                b.tilIntervalKm.error = "Хотя бы один интервал > 0"
+                b.tilIntervalMonths.error = "Хотя бы один интервал > 0"
+                ok = false
+            }
+            ok = validateField(b.tilLastDate, editUseCase.validateDateNotFuture(b.etLastDate.text?.toString().orEmpty())) && ok
+            ok = validateField(b.tilCost, editUseCase.validateCost(b.etCost.text?.toString().orEmpty())) && ok
+            if (ok) null else "Исправь ошибки в полях"
+        }
+
+        // Живая валидация: «Сохранить» серая, пока все поля не заполнены корректно.
+        val fields = listOf(b.etName, b.etIntervalKm, b.etIntervalMonths, b.etLastDate, b.etCost)
+        val afterTextChanged = object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                validateForm()
+                dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE)?.isEnabled =
+                    validateForm() == null
+            }
+        }
+        fields.forEach { it.addTextChangedListener(afterTextChanged) }
+
+        dialog.setOnShowListener {
+            // Валидируем сразу: если предзаполненные данные некорректны — кнопка неактивна.
+            dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).isEnabled =
+                validateForm() == null
+
+            dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE)
+                .setOnClickListener {
+                    // Гвард на случай гонки: не сохраняем при невалидном вводе.
+                    if (validateForm() != null) return@setOnClickListener
+
+                    val dateText = b.etLastDate.text?.toString().orEmpty().trim()
+                    viewModel.onEvent(
+                        UiEvent.EditItem(
+                            item = item,
+                            name = b.etName.text?.toString()?.trim().orEmpty(),
+                            intervalKm = b.etIntervalKm.text?.toString()?.trim()?.toIntOrNull() ?: 0,
+                            intervalMonths = b.etIntervalMonths.text?.toString()?.trim()?.toIntOrNull() ?: 0,
+                            lastServiceDateMillis = editUseCase.parseDate(dateText)?.time
+                                ?: item.lastServiceDateMillis,
+                            costLine = b.etCost.text?.toString()?.trim()
+                        )
+                    )
+                    dialog.dismiss()
+                }
+            // «Отмена» (или крест/тап вне) — диалог закрывается без изменений в базе.
+        }
+
+        dialog.show()
+    }
+
     private fun showMarkDoneDialog(item: ServiceItem) {
         AppDialogs.showMarkDoneDialog(
             context = this,
@@ -445,11 +667,12 @@ class MainActivity : AppCompatActivity() {
         AppDialogs.showActions(
             context = this,
             title = item.name,
-            actions = arrayOf("Отметить ТО выполненным", "Удалить"),
+            actions = arrayOf("Редактировать", "Отметить ТО выполненным", "Удалить"),
             onPick = { which ->
                 when (which) {
-                    0 -> showMarkDoneDialog(item)
-                    1 -> AppDialogs.showConfirm(
+                    0 -> showEditItemDialog(item)
+                    1 -> showMarkDoneDialog(item)
+                    2 -> AppDialogs.showConfirm(
                         context = this,
                         title = "Удалить работу?",
                         message = "\"${item.name}\" и вся история по ней будут удалены.",

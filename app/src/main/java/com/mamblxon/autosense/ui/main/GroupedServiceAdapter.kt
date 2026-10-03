@@ -1,10 +1,14 @@
 package com.mamblxon.autosense.ui.main
 
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.RectF
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import androidx.recyclerview.widget.DiffUtil
+import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.mamblxon.autosense.R
@@ -12,12 +16,157 @@ import com.mamblxon.autosense.databinding.ItemServiceBinding
 import com.mamblxon.autosense.databinding.ItemServiceHeaderBinding
 import com.mamblxon.autosense.domain.model.ServiceItem
 import java.util.concurrent.TimeUnit
+import kotlin.math.abs
+import kotlin.math.max
 import kotlin.math.roundToInt
+
+/**
+ * Свайп-действия для строк списка:
+ *  • свайп влево  → удаление (красный фон + иконка корзины);
+ *  • свайп вправо → редактирование (синий фон + иконка карандаша).
+ */
+interface SwipeActionHandler {
+    fun onSwipeDelete(item: ServiceItem)
+    fun onSwipeEdit(item: ServiceItem)
+}
 
 class GroupedServiceAdapter(
     private val onClick: (ServiceItem) -> Unit,
-    private val onLongClick: (ServiceItem) -> Unit
+    private val onLongClick: (ServiceItem) -> Unit,
+    private val swipeHandler: SwipeActionHandler? = null
 ) : ListAdapter<ServiceListItem, RecyclerView.ViewHolder>(DIFF) {
+
+    private var touchHelper: ItemTouchHelper? = null
+
+    /** Позиция строки в списке или -1, если holder — заголовок. */
+    private fun rowItemPosition(holder: RecyclerView.ViewHolder): Int {
+        val pos = holder.bindingAdapterPosition
+        if (pos == RecyclerView.NO_POSITION) return -1
+        return if (getItem(pos) is ServiceListItem.Row) pos else -1
+    }
+
+    /** Привязывает ItemTouchHelper к RecyclerView (свайпы работают только на строках). */
+    fun attachToRecyclerView(recyclerView: RecyclerView) {
+        if (touchHelper != null) return
+        val callback = object : ItemTouchHelper.SimpleCallback(
+            0,
+            ItemTouchHelper.LEFT or ItemTouchHelper.RIGHT
+        ) {
+            override fun getDragDirs(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder) =
+                0
+
+            override fun onMove(
+                recyclerView: RecyclerView,
+                viewHolder: RecyclerView.ViewHolder,
+                target: RecyclerView.ViewHolder
+            ): Boolean = false
+
+            override fun isValidDropTarget(target: RecyclerView.ViewHolder?) =
+                target != null && rowItemPosition(target) >= 0
+
+            override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
+                val pos = rowItemPosition(viewHolder)
+                if (pos < 0) return
+                val item = (getItem(pos) as ServiceListItem.Row).item
+                when (direction) {
+                    ItemTouchHelper.LEFT -> swipeHandler?.onSwipeDelete(item)
+                    ItemTouchHelper.RIGHT -> swipeHandler?.onSwipeEdit(item)
+                }
+            }
+
+            override fun clearView(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder) {
+                super.clearView(recyclerView, viewHolder)
+                // Возвращаем карточку в исходное состояние после отменённого/завершённого свайпа.
+                viewHolder.itemView.translationX = 0f
+                resetSwipeVisual(viewHolder.itemView)
+            }
+
+            override fun onChildDraw(
+                c: Canvas,
+                recyclerView: RecyclerView,
+                viewHolder: RecyclerView.ViewHolder,
+                dX: Float,
+                dY: Float,
+                actionState: Int,
+                isCurrentlyActive: Boolean
+            ) {
+                val swiping = actionState == ItemTouchHelper.ACTION_STATE_SWIPE &&
+                        rowItemPosition(viewHolder) >= 0
+                if (!swiping) {
+                    super.onChildDraw(c, recyclerView, viewHolder, dX, dY, actionState, isCurrentlyActive)
+                    return
+                }
+                drawSwipeFeedback(c, viewHolder.itemView, dX)
+                // Элемент немного уменьшается по мере свайпа (эффект как в Gmail).
+                applySwipeScale(viewHolder.itemView, dX)
+                // Рисуем сам сдвиг вручную, поэтому базовую реализацию не вызываем.
+            }
+        }
+        touchHelper = ItemTouchHelper(callback).also { it.attachToRecyclerView(recyclerView) }
+    }
+
+    // ---------- Визуальная обратная связь свайпа ----------
+
+    private val swipePaint = Paint()
+    private val swipeIconRect = RectF()
+
+    private fun drawSwipeFeedback(c: Canvas, itemView: android.view.View, dX: Float) {
+        val ctx = itemView.context
+        val left = itemView.left.toFloat()
+        val right = itemView.right.toFloat()
+        val top = itemView.top.toFloat()
+        val bottom = itemView.bottom.toFloat()
+        val radius = 16f * ctx.resources.displayMetrics.density
+
+        val isDelete = dX < 0f
+        if (isDelete && swipeHandler == null) return
+        if (!isDelete && swipeHandler == null) return
+
+        val colorRes = if (isDelete) R.color.swipe_delete else R.color.swipe_edit
+        val iconRes = if (isDelete) R.drawable.ic_swipe_delete else R.drawable.ic_swipe_edit
+
+        swipePaint.color = ContextCompat.getColor(ctx, colorRes)
+
+        // Фон действия рисуем под карточкой со стороны, куда тянем элемент.
+        val revealedWidth = abs(dX)
+        if (revealedWidth <= 0f) return
+        val backgroundRect = if (isDelete) {
+            RectF(right - revealedWidth, top, right, bottom)
+        } else {
+            RectF(left, top, left + revealedWidth, bottom)
+        }
+        c.drawRoundRect(backgroundRect, radius, radius, swipePaint)
+
+        // Иконка появляется плавно: прозрачность растёт по мере свайпа.
+        val threshold = revealedWidth * 0.35f
+        val alpha = ((revealedWidth - threshold) / max(1f, revealedWidth)).coerceIn(0f, 1f)
+        if (alpha <= 0.05f) return
+
+        val icon = ContextCompat.getDrawable(ctx, iconRes) ?: return
+        val size = (24f * ctx.resources.displayMetrics.density).toInt()
+        val cx = if (isDelete) right - revealedWidth / 2f else left + revealedWidth / 2f
+        val cy = (top + bottom) / 2f
+        swipeIconRect.set(
+            (cx - size / 2f), (cy - size / 2f),
+            (cx + size / 2f), (cy + size / 2f)
+        )
+        icon.bounds = swipeIconRect
+        icon.alpha = (alpha * 255).roundToInt()
+        icon.draw(c)
+    }
+
+    private fun applySwipeScale(itemView: android.view.View, dX: Float) {
+        val fraction = abs(dX) / max(1f, itemView.width.toFloat())
+        val scale = 1f - 0.08f * fraction.coerceIn(0f, 1f)
+        itemView.scaleX = scale
+        itemView.scaleY = scale
+    }
+
+    private fun resetSwipeVisual(itemView: android.view.View) {
+        itemView.scaleX = 1f
+        itemView.scaleY = 1f
+        itemView.rotation = 0f
+    }
 
     override fun getItemViewType(position: Int): Int =
         when (getItem(position)) {

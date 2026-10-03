@@ -13,10 +13,13 @@ interface ServiceRepository {
     // ---------- ServiceItem ----------
     fun observeItems(profileId: Long): Flow<List<ServiceItem>>
     suspend fun getItemsOnce(profileId: Long): List<ServiceItem>
+    /** Поиск по названию ТО (LIKE), используется DAO-запросом searchByTitle. */
+    suspend fun searchItems(profileId: Long, query: String): List<ServiceItem>
     suspend fun getItemById(id: Long): ServiceItem?
     suspend fun countItems(profileId: Long): Int
 
     suspend fun insertItems(items: List<ServiceItem>)
+    suspend fun insertItem(item: ServiceItem): Long
     suspend fun updateItem(item: ServiceItem)
     suspend fun updateItems(items: List<ServiceItem>)
     suspend fun deleteItem(item: ServiceItem)

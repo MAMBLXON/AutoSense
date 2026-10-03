@@ -59,6 +59,30 @@ object AppDialogs {
         onAction: (() -> Unit)? = null
     ) = snackbar(view, text, isError = false, actionLabel = actionLabel, onAction = onAction)
 
+    /**
+     * Snackbar с действием (например «Отменить» для свайп-удаления).
+     * durationMs — время показа (по умолчанию 4 секунды).
+     */
+    fun snackbarWithAction(
+        view: View,
+        text: String,
+        actionLabel: String,
+        durationMs: Int = 4000,
+        isError: Boolean = false,
+        onAction: () -> Unit
+    ) {
+        val context = view.context
+        val bar = Snackbar.make(view, text, durationMs)
+
+        val bg = if (isError) ContextCompat.getColor(context, R.color.error)
+        else ContextCompat.getColor(context, R.color.primary)
+        bar.setBackgroundTint(bg)
+        bar.setTextColor(ContextCompat.getColor(context, R.color.on_primary))
+        bar.setActionTextColor(ContextCompat.getColor(context, R.color.on_primary))
+        bar.setAction(actionLabel) { onAction() }
+        bar.show()
+    }
+
     // =========================================================
     // Универсальный диалог с одним полем
     // =========================================================
@@ -254,5 +278,45 @@ object AppDialogs {
             .setItems(actions) { _, which -> onPick(which) }
             .setNegativeButton("Отмена", null)
             .show()
+    }
+
+    /**
+     * Диалог с чекбоксами (несколько вариантов одновременно).
+     * onApply — текущее состояние чекбоксов при «Применить», onReset — при «Сбросить».
+     */
+    fun showMultiChoice(
+        context: Context,
+        title: String,
+        items: Array<String>,
+        checked: BooleanArray,
+        positiveText: String = "Применить",
+        negativeText: String? = null,
+        onApply: (BooleanArray) -> Unit,
+        onReset: (() -> Unit)? = null
+    ) {
+        val state = checked.clone()
+        val dialog = MaterialAlertDialogBuilder(context)
+            .setTitle(title)
+            .setMultiChoiceItems(items, state) { _, which, isChecked ->
+                state[which] = isChecked
+            }
+            .setPositiveButton(positiveText, null)
+            .apply {
+                if (negativeText != null) {
+                    setNegativeButton(negativeText) { _, _ -> onReset?.invoke() }
+                } else {
+                    setNeutralButton("Отмена", null)
+                }
+            }
+            .create()
+
+        dialog.setOnShowListener {
+            dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE)
+                .setOnClickListener {
+                    dialog.dismiss()
+                    onApply(state.clone())
+                }
+        }
+        dialog.show()
     }
 }

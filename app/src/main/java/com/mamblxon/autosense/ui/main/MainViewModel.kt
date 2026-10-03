@@ -32,14 +32,20 @@ import kotlinx.coroutines.sync.withLock
 data class ServiceUiState(
     val listItems: List<ServiceListItem> = emptyList(),
     val isEmpty: Boolean = false,
-    /** Список реально пуст (в базе нет ни одной записи) — показывать заглушку «Добавь первую запись». */
+    /** Список пуст из-за поиска — показывать «Ничего не найдено». */
+    val isNoSearchResults: Boolean = false,
+    /** Список пуст из-за фильтра (тип работ) при непустой базе. */
+    val isFilteredEmpty: Boolean = false,
+    /** В базе нет ни одной записи — показывать заглушку «Добавь первую запись». */
     val isDatabaseEmpty: Boolean = false,
     val isLoading: Boolean = true,
     val error: String? = null,
     val currentCar: String = "",
     val filter: ServiceFilter = ServiceFilter.ALL,
     val totals: Totals = Totals(),
-    val searchQuery: String = ""
+    val searchQuery: String = "",
+    val typeFilter: Set<ServiceType> = emptySet(),
+    val sortOrder: SortOrder = SortOrder.DATE_DESC
 )
 
 data class Totals(
@@ -49,12 +55,21 @@ data class Totals(
     val red: Int = 0
 )
 
+enum class SortOrder(val label: String) {
+    DATE_DESC("По дате (новые сначала)"),
+    DATE_ASC("По дате (старые сначала)"),
+    KM_ASC("По пробегу (возрастание)"),
+    KM_DESC("По пробегу (убывание)")
+}
+
 /** Промежуточный снимок настроек — чтобы combine был из 3 источников, а не 6. */
 private data class SettingsSnapshot(
     val filter: ServiceFilter,
     val query: String,
     val error: String?,
-    val loading: Boolean
+    val loading: Boolean,
+    val types: Set<ServiceType>,
+    val sort: SortOrder
 )
 
 sealed interface UiEvent {
@@ -67,8 +82,24 @@ sealed interface UiEvent {
 
     data class UpdateKm(val newKm: Int) : UiEvent
     data class DeleteItem(val item: ServiceItem) : UiEvent
+    /** Восстановление записи после «Отмены» в Snackbar (undo для свайп-удаления). */
+    data class RestoreItem(val item: ServiceItem) : UiEvent
+    /** Обновление полей работы (долгое нажатие / свайп вправо → диалог редактирования). */
+    data class EditItem(
+        val item: ServiceItem,
+        val name: String,
+        val intervalKm: Int,
+        val intervalMonths: Int,
+        /** Миллисекунды последней даты ТО; null — оставить прежнюю дату. */
+        val lastServiceDateMillis: Long? = null,
+        /** Новая строка стоимости; null — не менять заметку, "" — очистить стоимость. */
+        val costLine: String? = null
+    ) : UiEvent
     data class SetFilter(val filter: ServiceFilter) : UiEvent
     data class SetSearchQuery(val query: String) : UiEvent
+    /** Фильтр по типам работ (диалог с чекбоксами). Пустой набор = без фильтра. */
+    data class SetTypeFilter(val types: Set<ServiceType>) : UiEvent
+    data class SetSortOrder(val order: SortOrder) : UiEvent
 }
 
 /** Одноразовые сообщения для UI (Snackbar). */
@@ -90,6 +121,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val errorFlow = MutableStateFlow<String?>(null)
     private val loadingFlow = MutableStateFlow(true)
     private val searchQueryFlow = MutableStateFlow("")
+    /** Фильтр по типам работ (чекбоксы диалога «Фильтр»). Пустой набор = без фильтра. */
+    private val typeFilterFlow = MutableStateFlow<Set<ServiceType>>(emptySet())
+    /** Сортировка; выбранная сортировка сохраняется в SharedPreferences. */
+    private val sortFlow = MutableStateFlow(prefs.sortOrder)
 
     private val _messages = MutableSharedFlow<UiMessage>(extraBufferCapacity = 4)
     val messages: SharedFlow<UiMessage> = _messages.asSharedFlow()
@@ -119,14 +154,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 profiles.firstOrNull { it.id == profileId }?.catalogId ?: ""
             }.catchItemsFlow(profileId)
 
-            // 1. Сжимаем 4 настройки в один snapshot — это отдельный combine из 4 flow.
+            // 1. Сжимаем 6 настроек в один snapshot — это отдельный combine.
             val settingsFlow = combine(
                 filterFlow,
                 debouncedQuery,
                 errorFlow,
-                loadingFlow
-            ) { filter, query, error, loading ->
-                SettingsSnapshot(filter, query, error, loading)
+                loadingFlow,
+                typeFilterFlow,
+                sortFlow
+            ) { filter, query, error, loading, types, sort ->
+                SettingsSnapshot(filter, query, error, loading, types, sort)
             }
 
             // 2. Финальный combine из 3 источников — гарантированно рабочий overload.
@@ -141,7 +178,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     filter = settings.filter,
                     query = settings.query,
                     error = settings.error,
-                    loading = settings.loading
+                    loading = settings.loading,
+                    types = settings.types,
+                    sort = settings.sort
                 )
             }.onStart {
                 emit(ServiceUiState(isLoading = true, currentCar = ""))
@@ -172,7 +211,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         filter: ServiceFilter,
         query: String,
         error: String?,
-        loading: Boolean
+        loading: Boolean,
+        types: Set<ServiceType>,
+        sort: SortOrder
     ): ServiceUiState {
         val totals = Totals(
             all = items.size,
@@ -184,12 +225,24 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val byFilter = items.filter { filter.matches(it) }
         val bySearch = if (query.isBlank()) byFilter
         else byFilter.filter { it.name.contains(query, ignoreCase = true) }
+        // Фильтр по типу работ (несколько типов = «или»; OTHER = всё, что не попало под другие типы).
+        val byType = if (types.isEmpty()) bySearch
+        else bySearch.filter { item -> types.any { it.matches(item.name, item.category) } }
+
+        // Сортировка внутри группы (между собой записи сравниваются по выбранному порядку;
+        // срочность остаётся первичным критерием группировки по категориям).
+        val sorted = when (sort) {
+            SortOrder.DATE_DESC -> byType.sortedByDescending { it.lastServiceDateMillis }
+            SortOrder.DATE_ASC -> byType.sortedBy { it.lastServiceDateMillis }
+            SortOrder.KM_ASC -> byType.sortedBy { it.currentKm }
+            SortOrder.KM_DESC -> byType.sortedByDescending { it.currentKm }
+        }
 
         val order = listOf(
             "Двигатель", "Топливная система", "Тормоза",
             "Трансмиссия", "Ходовая", "Электрика", "Прочее"
         )
-        val grouped = bySearch
+        val grouped = sorted
             .groupBy { it.category.ifBlank { "Прочее" } }
             .toSortedMap(compareBy { c ->
                 order.indexOf(c).let { if (it == -1) order.size else it }
@@ -211,13 +264,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         return ServiceUiState(
             listItems = listItems,
             isEmpty = listItems.isEmpty(),
+            isNoSearchResults = listItems.isEmpty() && !loading &&
+                    items.isNotEmpty() && query.isNotBlank(),
+            isFilteredEmpty = listItems.isEmpty() && !loading &&
+                    items.isNotEmpty() && query.isBlank(),
             isDatabaseEmpty = items.isEmpty(),
             isLoading = loading,
             error = error,
             currentCar = catalogId,
             filter = filter,
             totals = totals,
-            searchQuery = query
+            searchQuery = query,
+            typeFilter = types,
+            sortOrder = sort
         )
     }
 
@@ -313,12 +372,80 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     prefs.setLastKmUpdate(profileId, System.currentTimeMillis())
                 }
 
-                is UiEvent.DeleteItem -> dbOp("Не удалось удалить запись") {
-                    repo.deleteItem(event.item)
+                is UiEvent.DeleteItem -> deleteItem(event.item)
+
+                is UiEvent.RestoreItem -> dbOp("Не удалось восстановить запись") {
+                    repo.insertItem(event.item)
+                    _messages.tryEmit(UiMessage.Info("Запись восстановлена"))
                 }
+
+                is UiEvent.EditItem -> updateItem(event)
 
                 is UiEvent.SetFilter -> filterFlow.value = event.filter
                 is UiEvent.SetSearchQuery -> searchQueryFlow.value = event.query
+
+                is UiEvent.SetTypeFilter -> typeFilterFlow.value = event.types
+
+                is UiEvent.SetSortOrder -> {
+                    sortFlow.value = event.order
+                    // Выбранная сортировка сохраняется между запусками приложения.
+                    prefs.setSortOrder(event.order)
+                }
+            }
+        }
+    }
+
+    /**
+     * Подсчёт записей, подходящих под выбранные типы работ — для диалога фильтра.
+     * Ошибки БД не допускаем до UI: при сбое возвращаем пустой профиль-набор и логируем.
+     */
+    suspend fun itemTypeCounts(): Map<ServiceType, Int> {
+        val profileId = currentProfileFlow.value
+        if (profileId <= 0L) return emptyMap()
+        return try {
+            val items = repo.getItemsOnce(profileId)
+            ServiceType.entries.associateWith { type ->
+                items.count { type.matches(it.name, it.category) }
+            }
+        } catch (t: Throwable) {
+            Log.e("AutoSense", "Failed to load items for type counts", t)
+            emptyMap()
+        }
+    }
+
+    /** Удаление записи (свайп влево). Ошибку БД гасим Snackbar-ом, не крашем. */
+    fun deleteItem(item: ServiceItem) {
+        viewModelScope.launch {
+            dbOp("Не удалось удалить запись") {
+                repo.deleteItem(item)
+            }
+        }
+    }
+
+    /**
+     * Обновление работы (долгое нажатие / свайп вправо → диалог редактирования).
+     * После смены полей пересчитываем срочность, чтобы бейдж сразу отражал новые правила.
+     * Список обновляется автоматически через Room-Flow — без перезагрузки активности.
+     */
+    fun updateItem(event: UiEvent.EditItem) {
+        viewModelScope.launch {
+            dbOp("Не удалось сохранить запись") {
+                val updated = event.item.copy(
+                    name = event.name.trim(),
+                    intervalKm = event.intervalKm,
+                    intervalMonths = event.intervalMonths,
+                    lastServiceDateMillis = event.lastServiceDateMillis
+                        ?: event.item.lastServiceDateMillis,
+                    notes = when {
+                        event.costLine == null -> event.item.notes
+                        event.costLine.isBlank() -> ""
+                        else -> "Стоимость последнего ТО: ${event.costLine.trim()} ₽"
+                    }
+                ).let {
+                    it.copy(urgency = useCase.computeUrgency(it, System.currentTimeMillis(), prefs.yellowThreshold))
+                }
+                repo.updateItem(updated)
+                _messages.tryEmit(UiMessage.Info("Запись обновлена: ${updated.name}"))
             }
         }
     }
