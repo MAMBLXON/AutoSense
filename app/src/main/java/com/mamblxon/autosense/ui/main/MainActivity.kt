@@ -634,7 +634,7 @@ class MainActivity : AppCompatActivity(), SwipeActionHandler {
             ok = validateField(b.tilName, editUseCase.validateName(b.etName.text?.toString().orEmpty())) && ok
             val kmText = b.etIntervalKm.text?.toString().orEmpty()
             val monthsText = b.etIntervalMonths.text?.toString().orEmpty()
-            val kmValid = validateField(b.tilIntervalKm, editUseCase.validateIntervalKm(kmText))
+            val kmValid = validateField(b.tilIntervalKm, editUseCase.validateIntervalKm(kmText, item.currentKm))
             val monthsValid = validateField(b.tilIntervalMonths, editUseCase.validateIntervalMonths(monthsText))
             ok = kmValid && monthsValid && ok
             if (kmValid && monthsValid && !editUseCase.hasPositiveInterval(kmText, monthsText)) {

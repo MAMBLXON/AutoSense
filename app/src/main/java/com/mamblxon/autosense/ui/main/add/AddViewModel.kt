@@ -93,8 +93,11 @@ class AddViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Полная проверка формы. Первый Invalid — причина неактивной кнопки. */
     fun validate(form: AddForm): ValidationResult {
+        val st = _state.value
         useCase.validateName(form.name).let { if (it is ValidationResult.Invalid) return it }
-        useCase.validateIntervalKm(form.intervalKm).let { if (it is ValidationResult.Invalid) return it }
+        // Интервал по км не может превышать текущий одометр автомобиля.
+        useCase.validateIntervalKm(form.intervalKm, st.currentKm)
+            .let { if (it is ValidationResult.Invalid) return it }
         useCase.validateIntervalMonths(form.intervalMonths).let { if (it is ValidationResult.Invalid) return it }
         if (!useCase.hasPositiveInterval(form.intervalKm, form.intervalMonths)) {
             return ValidationResult.Invalid("Хотя бы один интервал должен быть больше нуля")

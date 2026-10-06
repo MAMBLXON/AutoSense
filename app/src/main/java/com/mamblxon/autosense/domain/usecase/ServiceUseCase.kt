@@ -159,7 +159,7 @@ class ServiceUseCase {
             base.copy(urgency = computeUrgency(base, nowMillis, yellowThreshold))
         }
     }
-    fun validateIntervalKm(input: String): ValidationResult {
+    fun validateIntervalKm(input: String, currentKm: Int = 0): ValidationResult {
         val trimmed = input.trim()
         if (trimmed.isEmpty()) {
             return ValidationResult.Invalid("Введи интервал в км или 0")
@@ -171,6 +171,11 @@ class ServiceUseCase {
         }
         if (km > MAX_KM) {
             return ValidationResult.Invalid("Слишком большое значение")
+        }
+        if (km > 0 && km > currentKm) {
+            return ValidationResult.Invalid(
+                "Интервал ($km км) не может быть больше текущего пробега ($currentKm км)"
+            )
         }
         return ValidationResult.Valid
     }
