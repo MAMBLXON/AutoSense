@@ -1,2 +1,6 @@
-# Git bundles
-*.bundle
+# Gradle
+.gradle/
+
+# Android build artifacts
+build/
+app/build/

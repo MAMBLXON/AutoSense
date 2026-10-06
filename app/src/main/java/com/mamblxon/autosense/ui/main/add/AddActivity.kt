@@ -92,7 +92,7 @@ class AddActivity : AppCompatActivity() {
 
         valid = showError(binding.tilName, useCase.validateName(form.name)) && valid
 
-        val kmResult = useCase.validateIntervalKm(form.intervalKm)
+        val kmResult = useCase.validateIntervalKm(form.intervalKm, viewModel.state.value.currentKm)
         val monthsResult = useCase.validateIntervalMonths(form.intervalMonths)
         valid = showError(binding.tilIntervalKm, kmResult) && valid
         valid = showError(binding.tilIntervalMonths, monthsResult) && valid
