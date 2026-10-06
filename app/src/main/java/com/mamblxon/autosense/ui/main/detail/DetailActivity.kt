@@ -41,6 +41,9 @@ class DetailActivity : AppCompatActivity() {
     private var lastCsv: String? = null
     private var finished = false
 
+    /** Доступ к пробегу профиля (resolveKnownKm / setLastKm) для проверки при отметке ТО. */
+    private val prefs by lazy { com.mamblxon.autosense.prefs.AppPrefs(this) }
+
     private val viewModel: DetailViewModel by viewModels {
         DetailViewModel.Factory(application, itemId)
     }
@@ -205,6 +208,9 @@ class DetailActivity : AppCompatActivity() {
         val item = viewModel.state.value.item ?: return
         val useCase = com.mamblxon.autosense.domain.usecase.ServiceUseCase()
 
+        // Актуальный пробег автомобиля: из prefs (последний ввод), fallback — currentKm работы.
+        val currentProfileKm = prefs.resolveKnownKm(prefs.currentProfileId, item.currentKm)
+
         AppDialogs.showInput(
             context = this,
             title = "Отметить ТО выполненным",
@@ -215,14 +221,40 @@ class DetailActivity : AppCompatActivity() {
             iconRes = android.R.drawable.checkbox_on_background,
             positiveText = "Отметить",
             validate = { value ->
-                when (val r = useCase.validateKm(value, lastServiceKm = item.currentKm)) {
+                // upperBound — текущий пробег профиля: подсказка под полем, если km больше одометра.
+                val bound = if (currentProfileKm > 0 && currentProfileKm >= item.currentKm) currentProfileKm else 0
+                when (val r = useCase.validateKm(value, lastServiceKm = item.currentKm, upperBound = bound)) {
                     is com.mamblxon.autosense.domain.usecase.ValidationResult.Invalid -> r.error
                     else -> null
                 }
             },
             onConfirm = { value ->
-                viewModel.markDone(value.toInt())
-                AppDialogs.toast(this, "Записано в историю")
+                val km = value.toInt()
+                if (currentProfileKm > 0 && km > currentProfileKm) {
+                    // КРИТИЧЕСКАЯ ПРОВЕРКА: пробег больше текущего одометра профиля.
+                    MaterialAlertDialogBuilder(this)
+                        .setTitle("Пробег больше текущего")
+                        .setMessage(
+                            "Введённый пробег $km км больше текущего пробега " +
+                                "автомобиля ($currentProfileKm км). Отметить как новый текущий пробег?"
+                        )
+                        .setPositiveButton("Да") { _, _ ->
+                            // Согласие: сначала обновляем пробег профиля, затем отмечаем ТО.
+                            prefs.setLastKm(prefs.currentProfileId, km)
+                            prefs.setLastKmUpdate(prefs.currentProfileId, System.currentTimeMillis())
+                            viewModel.markDone(km)
+                            AppDialogs.toast(this, "Записано в историю, пробег обновлён: $km км")
+                        }
+                        .setNegativeButton("Нет") { confirmDialog, _ ->
+                            confirmDialog.dismiss()
+                            AppDialogs.toast(this, "Введите пробег не больше $currentProfileKm км")
+                        }
+                        .show()
+                } else {
+                    // Обычное сохранение без вопросов.
+                    viewModel.markDone(km)
+                    AppDialogs.toast(this, "Записано в историю")
+                }
             }
         )
     }

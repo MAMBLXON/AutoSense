@@ -207,7 +207,8 @@ class ServiceUseCase {
     fun validateKm(
         input: String,
         lastServiceKm: Int? = null,
-        allowZero: Boolean = true
+        allowZero: Boolean = true,
+        upperBound: Int = 0
     ): ValidationResult {
         val trimmed = input.trim()
         if (trimmed.isEmpty()) {
@@ -228,6 +229,11 @@ class ServiceUseCase {
             return ValidationResult.Invalid(
                 "Пробег не может быть меньше последнего ТО ($lastServiceKm км)"
             )
+        }
+        // upperBound — текущий пробег автомобиля (из профиля). <= 0 означает «неизвестен»,
+        // в этом случае верхняя граница не проверяется (диалог-подтверждение показывается в UI).
+        if (upperBound > 0 && km > upperBound) {
+            return ValidationResult.Invalid("Больше текущего пробега $upperBound км")
         }
         return ValidationResult.Valid
     }
