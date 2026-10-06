@@ -61,6 +61,108 @@ class ServiceUseCase {
             else -> ServiceItem.URGENCY_GREEN
         }
     }
+    /**
+     * Расчёт «остатка» до следующего ТО: сколько км и дней осталось (или на сколько
+     * просрочено). Все вычисления — в памяти, структура БД не меняется.
+     */
+    fun computeRemaining(
+        item: ServiceItem,
+        nowMillis: Long = System.currentTimeMillis()
+    ): RemainingInfo {
+        // Остаток по пробегу: до скольки км нужно доехать минус текущий одометр.
+        val kmRemaining = if (item.intervalKm > 0)
+            (item.lastServiceKm + item.intervalKm - item.currentKm).coerceAtLeast(0)
+        else 0
+
+        // Остаток по времени: интервал считается календарно, от даты последнего ТО.
+        val daysRemaining = if (item.intervalMonths > 0) {
+            val dueDate = Date(item.lastServiceDateMillis +
+                item.intervalMonths.toLong() * 30L * DAY_MILLIS)
+            TimeUnit.MILLISECONDS.toDays(dueDate.time - nowMillis).coerceAtLeast(0L).toInt()
+        } else 0
+
+        return RemainingInfo(
+            kmRemaining = kmRemaining,
+            daysRemaining = daysRemaining,
+            urgency = computeUrgency(item, nowMillis),
+            overdueKm = if (item.intervalKm > 0)
+                (item.currentKm - item.lastServiceKm - item.intervalKm).coerceAtLeast(0)
+            else 0,
+            overdueDays = if (item.intervalMonths > 0)
+                TimeUnit.MILLISECONDS.toDays(nowMillis -
+                    item.lastServiceDateMillis - item.intervalMonths.toLong() * 30L * DAY_MILLIS)
+                    .coerceAtLeast(0L).toInt()
+            else 0,
+            nextDueKm = if (item.intervalKm > 0) item.lastServiceKm + item.intervalKm else 0,
+            nextDueDateMillis = if (item.intervalMonths > 0)
+                item.lastServiceDateMillis + item.intervalMonths.toLong() * 30L * DAY_MILLIS
+            else 0L
+        )
+    }
+
+    /**
+     * Человекочитаемый текст остатка для карточки списка и уведомлений.
+     *  • GREEN  → «Осталось: 5 000 км или 45 дней»
+     *  • YELLOW → «Скоро: 1 200 км или 12 дней»
+     *  • RED    → «Просрочено на: 300 км или 5 дней»
+     * Числа форматируются с раздельными пробелами (5 000 вместо 5000);
+     * слова «км/день» согласуются со значением (1 день / 2 дня / 5 дней).
+     */
+    fun formatRemaining(info: RemainingInfo): String {
+        val prefix = when (info.urgency) {
+            ServiceItem.URGENCY_RED -> "Просрочено на:"
+            ServiceItem.URGENCY_YELLOW -> "Скоро:"
+            else -> "Осталось:"
+        }
+        val km = if (info.nextDueKm > 0) {
+            val v = if (info.urgency == ServiceItem.URGENCY_RED) info.overdueKm else info.kmRemaining
+            if (v > 0) "${formatNumber(v)} км" else null
+        } else null
+        val days = if (info.nextDueDateMillis > 0) {
+            val v = if (info.urgency == ServiceItem.URGENCY_RED) info.overdueDays else info.daysRemaining
+            if (v > 0) "${formatNumber(v)} ${pluralDays(v)}" else null
+        } else null
+        return when {
+            km != null && days != null -> "$prefix $km или $days"
+            km != null -> "$prefix $km"
+            days != null -> "$prefix $days"
+            else -> "$prefix 0 км"
+        }
+    }
+
+    /** Разделители тысяч пробелами: 5000 → «5 000», 125000 → «125 000». */
+    fun formatNumber(value: Int): String =
+        "%,d".format(Locale("ru"), value).replace('\u00A0', ' ')
+
+    /** Согласование слова «день» с числом: 1 день, 2 дня, 5 дней. */
+    private fun pluralDays(n: Int): String {
+        val mod10 = n % 10
+        val mod100 = n % 100
+        return when {
+            mod10 == 1 && mod100 != 11 -> "день"
+            mod10 in 2..4 && (mod100 < 12 || mod100 > 14) -> "дня"
+            else -> "дней"
+        }
+    }
+
+    /** Прогноз следующего ТО для экрана деталей: дата в формате ДД.ММ.ГГГГ. */
+    fun formatNextDueDate(millis: Long): String =
+        SimpleDateFormat("dd.MM.yyyy", Locale.getDefault()).format(Date(millis))
+
+    data class RemainingInfo(
+        val kmRemaining: Int,
+        val daysRemaining: Int,
+        val urgency: Int,
+        /** На сколько км просрочено (0, если не просрочено по пробегу). */
+        val overdueKm: Int = 0,
+        /** На сколько дней просрочено (0, если не просрочено по сроку). */
+        val overdueDays: Int = 0,
+        /** Целевой пробег следующего ТО; 0 — интервал по км не задан. */
+        val nextDueKm: Int = 0,
+        /** Целевая дата следующего ТО; 0 — интервал по месяцам не задан. */
+        val nextDueDateMillis: Long = 0L
+    )
+
     fun markServiceDone(
         item: ServiceItem,
         currentKm: Int,
@@ -105,7 +207,8 @@ class ServiceUseCase {
     fun validateKm(
         input: String,
         lastServiceKm: Int? = null,
-        allowZero: Boolean = true
+        allowZero: Boolean = true,
+        upperBound: Int = 0
     ): ValidationResult {
         val trimmed = input.trim()
         if (trimmed.isEmpty()) {
@@ -126,6 +229,11 @@ class ServiceUseCase {
             return ValidationResult.Invalid(
                 "Пробег не может быть меньше последнего ТО ($lastServiceKm км)"
             )
+        }
+        // upperBound — текущий пробег автомобиля (из профиля). <= 0 означает «неизвестен»,
+        // в этом случае верхняя граница не проверяется (диалог-подтверждение показывается в UI).
+        if (upperBound > 0 && km > upperBound) {
+            return ValidationResult.Invalid("Больше текущего пробега $upperBound км")
         }
         return ValidationResult.Valid
     }
@@ -172,10 +280,9 @@ class ServiceUseCase {
         if (km > MAX_KM) {
             return ValidationResult.Invalid("Слишком большое значение")
         }
-        if (km > 0 && km > currentKm) {
-            return ValidationResult.Invalid(
-                "Интервал ($km км) не может быть больше текущего пробега ($currentKm км)"
-            )
+        // НОВАЯ ПРОВЕРКА: интервал не может быть больше текущего пробега
+        if (km > 0 && currentKm > 0 && km > currentKm) {
+            return ValidationResult.Invalid("Интервал $km км больше текущего пробега $currentKm км")
         }
         return ValidationResult.Valid
     }
@@ -201,12 +308,14 @@ class ServiceUseCase {
 
     /**
      * Комбинированная проверка: хотя бы один интервал > 0.
+     * currentKm — текущий одометр; если передан (>0), интервал по км не может превышать его.
      */
     fun validateIntervalsPair(
         kmInput: String,
-        monthsInput: String
+        monthsInput: String,
+        currentKm: Int = 0
     ): ValidationResult {
-        val kmResult = validateIntervalKm(kmInput)
+        val kmResult = validateIntervalKm(kmInput, currentKm)
         if (kmResult is ValidationResult.Invalid) return kmResult
 
         val monthsResult = validateIntervalMonths(monthsInput)
@@ -277,6 +386,41 @@ class ServiceUseCase {
         return runCatching { format.parse(input.trim()) }.getOrNull()
     }
 
+    /**
+     * Валидация даты записи истории ТО при редактировании (принимает millis).
+     * Дата не может быть в будущем — «завтра сделать ТО» нельзя.
+     */
+    fun validateRecordDateNotFuture(
+        dateMillis: Long,
+        nowMillis: Long = System.currentTimeMillis()
+    ): ValidationResult {
+        if (dateMillis <= 0L) {
+            return ValidationResult.Invalid("Некорректная дата")
+        }
+        if (dateMillis > nowMillis) {
+            return ValidationResult.Invalid("Дата не может быть в будущем")
+        }
+        return ValidationResult.Valid
+    }
+
+    /**
+     * Валидация стоимости записи истории ТО: допускает 0 («стоимость не указана»),
+     * запрещает отрицательные суммы и слишком большие значения.
+     */
+    fun validateRecordCost(input: String): ValidationResult {
+        val trimmed = input.trim()
+        if (trimmed.isEmpty()) return ValidationResult.Valid
+        val cost = trimmed.toIntOrNull()
+            ?: return ValidationResult.Invalid("Стоимость должна быть числом")
+        if (cost < 0) {
+            return ValidationResult.Invalid("Стоимость не может быть отрицательной")
+        }
+        if (cost > MAX_COST) {
+            return ValidationResult.Invalid("Слишком большая сумма (макс $MAX_COST)")
+        }
+        return ValidationResult.Valid
+    }
+
     /** Валидирует стоимость: только число, больше нуля. Пустая строка допустима (необязательно). */
     fun validateCost(input: String, allowBlank: Boolean = true): ValidationResult {
         val trimmed = input.trim()
@@ -307,5 +451,7 @@ class ServiceUseCase {
         const val MAX_MONTHS = 120
         const val MAX_NAME_LENGTH = 100
         const val MAX_COST = 10_000_000
+        /** Миллисекунд в сутках — для календарного расчёта интервалов по месяцам (30 дней). */
+        const val DAY_MILLIS = 86_400_000L
     }
 }

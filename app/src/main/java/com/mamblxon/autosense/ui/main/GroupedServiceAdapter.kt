@@ -15,6 +15,7 @@ import com.mamblxon.autosense.R
 import com.mamblxon.autosense.databinding.ItemServiceBinding
 import com.mamblxon.autosense.databinding.ItemServiceHeaderBinding
 import com.mamblxon.autosense.domain.model.ServiceItem
+import com.mamblxon.autosense.domain.usecase.ServiceUseCase
 import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 import kotlin.math.max
@@ -198,7 +199,7 @@ class GroupedServiceAdapter(
         val item = getItem(position)
         when {
             holder is HeaderVH && item is ServiceListItem.Header -> holder.bind(item)
-            holder is RowVH && item is ServiceListItem.Row -> holder.bind(item.item)
+            holder is RowVH && item is ServiceListItem.Row -> holder.bind(item)
         }
     }
 
@@ -249,10 +250,11 @@ class GroupedServiceAdapter(
             }
         }
 
-        fun bind(item: ServiceItem) {
+        fun bind(row: ServiceListItem.Row) {
+            val item = row.item
             b.name.text = item.name
             b.subtitle.text = buildString {
-                append("каждые ").append(item.intervalKm).append(" км / ")
+                append("каждые ").append(formatGrouped(item.intervalKm)).append(" км / ")
                 append(item.intervalMonths).append(" мес")
                 if (item.fluidSpec.isNotBlank()) {
                     append("\n").append(item.fluidSpec)
@@ -294,12 +296,29 @@ class GroupedServiceAdapter(
             b.statusBadge.setTextColor(color)
             b.statusBadge.setBackgroundResource(badgeRes)
             b.statusBadge.isVisible = true
+
+            // Текст остатка под названием: рассчитан в MainViewModel и передан через Row.
+            // Цвет текста совпадает с urgency (зелёный/жёлтый/красный).
+            val remaining = row.remainingInfo
+            if (remaining != null) {
+                b.tvRemaining.text = REMAINING_FORMATTER.formatRemaining(remaining)
+                b.tvRemaining.setTextColor(color)
+                b.tvRemaining.isVisible = true
+            } else {
+                b.tvRemaining.isVisible = false
+            }
         }
     }
 
     companion object {
         private const val TYPE_HEADER = 0
         private const val TYPE_ROW = 1
+
+        /** Общий экземпляр useCase — только для форматирования остатка (без БД). */
+        private val REMAINING_FORMATTER = ServiceUseCase()
+
+        /** Число с разделителями тысяч пробелами: 10000 → «10 000». */
+        private fun formatGrouped(value: Int): String = REMAINING_FORMATTER.formatNumber(value)
 
         private val DIFF = object : DiffUtil.ItemCallback<ServiceListItem>() {
             override fun areItemsTheSame(a: ServiceListItem, b: ServiceListItem): Boolean =

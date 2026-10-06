@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Update
 import com.mamblxon.autosense.domain.model.ServiceRecord
 import com.mamblxon.autosense.domain.model.ServiceRecordWithName
 import kotlinx.coroutines.flow.Flow
@@ -13,6 +14,10 @@ interface ServiceRecordDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(record: ServiceRecord): Long
+
+    /** Обновление существующей записи истории ТО (по первичному ключу id). */
+    @Update
+    suspend fun updateRecord(record: ServiceRecord)
 
     @Query("SELECT * FROM service_records WHERE serviceItemId = :itemId ORDER BY dateMillis DESC")
     fun getForItem(itemId: Long): Flow<List<ServiceRecord>>

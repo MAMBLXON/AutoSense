@@ -148,7 +148,8 @@ object AppDialogs {
         carDisplayName: String,
         initialKm: Int,
         lastServiceKm: Int,
-        onConfirm: (km: Int, cost: Int, note: String) -> Unit
+        currentProfileKm: Int = 0,
+        onConfirm: (km: Int, cost: Int, note: String, updateProfileKm: Boolean) -> Unit
     ) {
         val binding = DialogMarkDoneBinding.inflate(LayoutInflater.from(context))
 
@@ -211,8 +212,35 @@ object AppDialogs {
 
                     if (!valid) return@setOnClickListener
 
+                    val kmValue = km!!
+                    val costValue = cost!!
+
+                    // КРИТИЧЕСКАЯ ПРОВЕРКА: пробег не должен превышать текущий пробег профиля.
+                    // currentProfileKm <= 0 — одометр автомобиля неизвестен, блокировки нет.
+                    if (currentProfileKm > 0 && kmValue > currentProfileKm) {
+                        MaterialAlertDialogBuilder(context)
+                            .setTitle("Пробег больше текущего")
+                            .setMessage(
+                                "Введённый пробег $kmValue км больше текущего пробега " +
+                                    "автомобиля ($currentProfileKm км). Отметить как новый текущий пробег?"
+                            )
+                            .setPositiveButton("Да") { _, _ ->
+                                dialog.dismiss()
+                                onConfirm(kmValue, costValue, note, true)
+                            }
+                            .setNegativeButton("Нет") { confirmDialog, _ ->
+                                confirmDialog.dismiss()
+                                toast(
+                                    context,
+                                    "Введите пробег не больше $currentProfileKm км"
+                                )
+                            }
+                            .show()
+                        return@setOnClickListener
+                    }
+
                     dialog.dismiss()
-                    onConfirm(km!!, cost!!, note)
+                    onConfirm(kmValue, costValue, note, false)
                 }
         }
 

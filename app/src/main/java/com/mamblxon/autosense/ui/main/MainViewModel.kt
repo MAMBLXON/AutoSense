@@ -269,6 +269,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 order.indexOf(c).let { if (it == -1) order.size else it }
             })
 
+        val now = System.currentTimeMillis()
+
         val listItems = buildList {
             grouped.forEach { (cat, groupItems) ->
                 if (groupItems.isNotEmpty()) {
@@ -277,7 +279,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                                 it.urgency == ServiceItem.URGENCY_YELLOW
                     }
                     add(ServiceListItem.Header(cat, groupItems.size, urgent))
-                    groupItems.forEach { add(ServiceListItem.Row(it)) }
+                    // Остаток до следующего ТО считаем в памяти (без DAO и без изменений БД)
+                    // и передаём готовый RemainingInfo прямо в строку списка.
+                    groupItems.forEach {
+                        add(
+                            ServiceListItem.Row(
+                                item = it,
+                                remainingInfo = useCase.computeRemaining(it, now)
+                            )
+                        )
+                    }
                 }
             }
         }

@@ -42,7 +42,13 @@ class ServiceCheckWorker(
                 .sortedByDescending { it.urgency }
 
             if (urgent.isNotEmpty() && prefs.notificationsEnabled) {
-                NotificationHelper.showServiceReminder(applicationContext, urgent)
+                // Для каждого элемента считаем «остаток» в памяти и передаём готовый
+                // текст в NotificationHelper: «Через 500 км нужно заменить масло»
+                // вместо абстрактного «Пора сделать ТО».
+                val lines = urgent.map { item ->
+                    useCase.formatRemaining(useCase.computeRemaining(item, now))
+                }
+                NotificationHelper.showServiceReminder(applicationContext, urgent, lines)
             }
 
             Result.success()

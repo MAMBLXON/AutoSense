@@ -690,13 +690,21 @@ class MainActivity : AppCompatActivity(), SwipeActionHandler {
     }
 
     private fun showMarkDoneDialog(item: ServiceItem) {
+        // Актуальный пробег автомобиля: из prefs (последний ввод), fallback — currentKm работы.
+        val currentProfileKm = prefs.resolveKnownKm(prefs.currentProfileId, item.currentKm)
         AppDialogs.showMarkDoneDialog(
             context = this,
             serviceName = item.name,
             carDisplayName = viewModel.state.value.currentCar,
             initialKm = item.currentKm,
-            lastServiceKm = item.currentKm
-        ) { km, cost, note ->
+            lastServiceKm = item.currentKm,
+            currentProfileKm = currentProfileKm
+        ) { km, cost, note, updateProfileKm ->
+            if (updateProfileKm) {
+                // Пользователь подтвердил: новый пробег становится текущим для профиля.
+                prefs.setLastKm(prefs.currentProfileId, km)
+                prefs.setLastKmUpdate(prefs.currentProfileId, System.currentTimeMillis())
+            }
             viewModel.onEvent(UiEvent.MarkDone(item, km, cost, note))
         }
     }

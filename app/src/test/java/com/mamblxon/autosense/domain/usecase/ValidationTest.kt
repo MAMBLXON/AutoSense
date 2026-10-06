@@ -82,6 +82,48 @@ class ValidationTest {
         assertTrue(useCase.validateIntervalKm("-1") is ValidationResult.Invalid)
     }
 
+    @Test
+    fun `validateIntervalKm rejects interval greater than currentKm`() {
+        val result = useCase.validateIntervalKm("50000", currentKm = 10000)
+        assertTrue(result is ValidationResult.Invalid)
+        assertEquals(
+            "Интервал 50000 км больше текущего пробега 10000 км",
+            (result as ValidationResult.Invalid).error
+        )
+    }
+
+    @Test
+    fun `validateIntervalKm allows interval less than currentKm`() {
+        val result = useCase.validateIntervalKm("5000", currentKm = 10000)
+        assertTrue(result is ValidationResult.Valid)
+    }
+
+    @Test
+    fun `validateIntervalKm allows zero interval regardless of currentKm`() {
+        val result = useCase.validateIntervalKm("0", currentKm = 10000)
+        assertTrue(result is ValidationResult.Valid)
+    }
+
+    // ---------- validateKm: upperBound (текущий пробег профиля) ----------
+
+    @Test
+    fun `validateKm rejects km greater than upperBound`() {
+        val result = useCase.validateKm("200000", upperBound = 150000)
+        assertTrue(result is ValidationResult.Invalid)
+        assertEquals("Больше текущего пробега 150000 км", (result as ValidationResult.Invalid).error)
+    }
+
+    @Test
+    fun `validateKm accepts km equal to upperBound`() {
+        assertEquals(ValidationResult.Valid, useCase.validateKm("150000", upperBound = 150000))
+    }
+
+    @Test
+    fun `validateKm skips upperBound check when bound is zero`() {
+        // currentProfileKm <= 0 — одометр неизвестен, блокировки нет
+        assertEquals(ValidationResult.Valid, useCase.validateKm("200000", upperBound = 0))
+    }
+
     // ---------- validateIntervalMonths ----------
 
     @Test
