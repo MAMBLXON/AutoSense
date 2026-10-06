@@ -5,6 +5,7 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
+    android:background="?attr/selectableItemBackground"
     android:paddingHorizontal="16dp"
     android:paddingVertical="10dp">
 
@@ -21,5 +22,22 @@
         android:layout_height="wrap_content"
         android:textSize="13sp"
         tools:text="Пробег: 42000 км" />
+
+    <TextView
+        android:id="@+id/tvCost"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="13sp"
+        android:textStyle="bold"
+        android:textColor="?attr/colorPrimary"
+        tools:text="4 500 ₽" />
+
+    <TextView
+        android:id="@+id/tvNote"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="12sp"
+        android:alpha="0.8"
+        tools:text="Замена масла и фильтров" />
 
 </LinearLayout>

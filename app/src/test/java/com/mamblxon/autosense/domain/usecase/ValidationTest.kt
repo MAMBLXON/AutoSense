@@ -82,6 +82,28 @@ class ValidationTest {
         assertTrue(useCase.validateIntervalKm("-1") is ValidationResult.Invalid)
     }
 
+    @Test
+    fun `validateIntervalKm rejects interval greater than currentKm`() {
+        val result = useCase.validateIntervalKm("50000", currentKm = 10000)
+        assertTrue(result is ValidationResult.Invalid)
+        assertEquals(
+            "Интервал 50000 км больше текущего пробега 10000 км",
+            (result as ValidationResult.Invalid).error
+        )
+    }
+
+    @Test
+    fun `validateIntervalKm allows interval less than currentKm`() {
+        val result = useCase.validateIntervalKm("5000", currentKm = 10000)
+        assertTrue(result is ValidationResult.Valid)
+    }
+
+    @Test
+    fun `validateIntervalKm allows zero interval regardless of currentKm`() {
+        val result = useCase.validateIntervalKm("0", currentKm = 10000)
+        assertTrue(result is ValidationResult.Valid)
+    }
+
     // ---------- validateIntervalMonths ----------
 
     @Test

@@ -31,6 +31,7 @@ interface ServiceRepository {
     fun observeTotalCost(catalogId: String): Flow<Int?>
     suspend fun getAllRecords(): List<ServiceRecord>
     suspend fun insertRecord(record: ServiceRecord)
+    suspend fun updateRecord(record: ServiceRecord)
 
     // ---------- Регламенты (legacy) ----------
     suspend fun loadRegulations(): List<CarRegulation>

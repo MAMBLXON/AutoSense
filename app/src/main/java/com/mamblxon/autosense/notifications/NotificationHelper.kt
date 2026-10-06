@@ -39,7 +39,17 @@ object NotificationHelper {
         manager.createNotificationChannel(channel)
     }
 
-    fun showServiceReminder(context: Context, urgentItems: List<ServiceItem>): Boolean {
+    /**
+     * Показывает напоминание о ТО.
+     * [remainingLines] — готовые тексты остатка по каждому элементу (из RemainingInfo),
+     * например «Через 500 км нужно заменить масло»-стиль: «Просрочено на: 300 км или 5 дней».
+     * Если строки не переданы, используется прежний краткий формат.
+     */
+    fun showServiceReminder(
+        context: Context,
+        urgentItems: List<ServiceItem>,
+        remainingLines: List<String> = emptyList()
+    ): Boolean {
         if (urgentItems.isEmpty()) return false
         ensureChannel(context)
 
@@ -55,15 +65,29 @@ object NotificationHelper {
             else -> "ТО: $yellow приближается"
         }
 
-        val summary = buildString {
-            if (red > 0) append("🔴 $red требуют внимания. ")
-            if (yellow > 0) append("🟡 $yellow приближаются. ")
-        }.trim()
+        // В заголовке одной строки — самая срочная позиция с конкретным остатком:
+        // «Замена масла · Осталось: 500 км», а не абстрактное «Пора сделать ТО».
+        val first = urgentItems.first()
+        val firstRemaining = remainingLines.firstOrNull()?.takeIf { it.isNotBlank() }
+        val summary = if (firstRemaining != null) {
+            "${first.name} · $firstRemaining"
+        } else {
+            buildString {
+                if (red > 0) append("🔴 $red требуют внимания. ")
+                if (yellow > 0) append("🟡 $yellow приближаются. ")
+            }.trim()
+        }
 
         val inbox = NotificationCompat.InboxStyle()
-        urgentItems.take(5).forEach { item ->
+        urgentItems.take(5).forEachIndexed { index, item ->
             val dot = if (item.urgency == ServiceItem.URGENCY_RED) "🔴" else "🟡"
-            inbox.addLine("$dot ${item.name} · ${item.car}")
+            val remaining = remainingLines.getOrNull(index)?.takeIf { it.isNotBlank() }
+            val line = if (remaining != null) {
+                "$dot ${item.name} · $remaining"
+            } else {
+                "$dot ${item.name} · ${item.car}"
+            }
+            inbox.addLine(line)
         }
         if (urgentItems.size > 5) {
             inbox.setSummaryText("и ещё ${urgentItems.size - 5}")

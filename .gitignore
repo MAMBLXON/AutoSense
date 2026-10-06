@@ -1,6 +1,5 @@
-# Gradle
-.gradle/
-
-# Android build artifacts
+# Build artifacts
 build/
-app/build/
+
+# Gradle caches and files
+.gradle/

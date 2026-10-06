@@ -93,6 +93,10 @@ class DefaultServiceRepository(
         recordDao.insert(record)
     }
 
+    override suspend fun updateRecord(record: ServiceRecord) {
+        recordDao.updateRecord(record)
+    }
+
     // ---------- Регламенты ----------
 
     override suspend fun loadRegulations(): List<CarRegulation> =
