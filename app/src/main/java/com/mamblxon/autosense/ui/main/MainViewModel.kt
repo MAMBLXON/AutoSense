@@ -269,6 +269,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             ad to adaptedItem
         }
         val adaptedItems = adaptedPairs.map { it.second }
+        // Карта адаптивных результатов по id — для проброса 🧠-бейджа и причины в строку списка.
+        val adaptiveById: Map<Long, AdaptiveResult> =
+            adaptedPairs.associate { (ad, adaptedItem) -> adaptedItem.id to ad }
 
         // Totals — по адаптированному urgency.
         val totals = Totals(
@@ -319,11 +322,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     // Остаток рассчитан в ViewModel по адаптированному интервалу (без DAO, без N+1)
                     // и передаётся готовый RemainingInfo прямо в строку списка.
                     groupItems.forEach { rowItem ->
+                        val ad = adaptiveById[rowItem.id]
                         add(
                             ServiceListItem.Row(
                                 item = rowItem,
                                 remainingInfo = remainingByItemId[rowItem.id]
-                                    ?: useCase.computeRemaining(rowItem, now)
+                                    ?: useCase.computeRemaining(rowItem, now),
+                                isAdapted = ad?.isAdapted ?: false,
+                                adaptiveReason = ad?.reason ?: ""
                             )
                         )
                     }

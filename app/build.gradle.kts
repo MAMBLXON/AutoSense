@@ -77,10 +77,6 @@ android {
             isShrinkResources = true        // вырезание неиспользуемых ресурсов (требует minify)
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
-                // RELEASE PROGUARD RULES (Room 2.6+, Kotlin Serialization 1.6+, WorkManager 2.9+, MVVM):
-                // keep-правила для рефлексии Room/serialization, Worker по имени класса,
-                // ViewModel-фабрик, enum values()/valueOf() и вырезание Log.* из release-билда
-                "proguard-rules.release.pro",
                 "proguard-rules.pro"
             )
             signingConfig = signingConfigs.getByName("release")
