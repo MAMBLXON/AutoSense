@@ -230,6 +230,14 @@
 -keepclassmembers enum androidx.work.ExistingWorkPolicy { *; }
 -keepclassmembers enum androidx.work.ExistingPeriodicWorkPolicy { *; }
 
+# SnoozeReceiver: BroadcastReceiver регистрируется в AndroidManifest и
+# инстанцируется системой по имени класса (Class.forName) — имя и
+# конструктор без аргументов обязаны сохраниться
+-keep class com.mamblxon.autosense.notifications.SnoozeReceiver { *; }
+-keep class * extends android.content.BroadcastReceiver {
+    public <init>();
+}
+
 # Внутренности WorkManager тянут Guava/Firebase-JobDispatcher, которых может не быть
 -dontwarn androidx.work.impl.**
 -dontwarn com.google.common.util.concurrent.**
@@ -282,12 +290,33 @@
     volatile <fields>;
 }
 
-# ViewModel создаётся Factory-рефлексией — пустой конструктор сохраняем
+# ViewModel создаётся Factory-рефлексией — пустой конструктор сохраняем.
+# AndroidViewModel-наследники (DetailViewModel и др.) создаются через
+# ViewModelProvider.Factory по имени класса — фиксируем сами классы
 -keepclassmembers class * extends androidx.lifecycle.ViewModel {
     <init>();
 }
+-keep class * extends androidx.lifecycle.AndroidViewModel { *; }
 
-# Enum values()/valueOf() — нужны встроенному EnumSerializer из kotlinx.serialization
+# Material/AppCompat: LayoutInflater инфлирует view-классы из XML рефлексивно
+# по сигнатуре конструктора (Context, AttributeSet[, int]) — конструкторы обязаны остаться
+-keep public class * extends android.view.View {
+    public <init>(android.content.Context);
+    public <init>(android.content.Context, android.util.AttributeSet);
+    public <init>(android.content.Context, android.util.AttributeSet, int);
+    public void set*(...);
+}
+-keepclasseswithmembers class * {
+    public <init>(android.content.Context, android.util.AttributeSet);
+}
+-keepclasseswithmembers class * {
+    public <init>(android.content.Context, android.util.AttributeSet, int);
+}
+-keepnames class com.google.android.material.** { *; }
+-keep class androidx.appcompat.widget.** { *; }
+
+# Enum values()/valueOf() — нужны встроенному EnumSerializer из kotlinx.serialization,
+# а также SortOrder.valueOf() в AppPrefs (парсинг порядка сортировки из SharedPreferences)
 -keepclassmembers enum * {
     public static **[] values();
     public static ** valueOf(java.lang.String);

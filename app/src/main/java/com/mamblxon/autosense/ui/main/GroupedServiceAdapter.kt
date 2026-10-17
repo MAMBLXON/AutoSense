@@ -11,6 +11,7 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.mamblxon.autosense.R
 import com.mamblxon.autosense.databinding.ItemServiceBinding
 import com.mamblxon.autosense.databinding.ItemServiceHeaderBinding
@@ -244,15 +245,43 @@ class GroupedServiceAdapter(
                 val pos = bindingAdapterPosition
                 if (pos != RecyclerView.NO_POSITION) {
                     val data = getItem(pos)
-                    if (data is ServiceListItem.Row) onLongClick(data.item)
+                    if (data is ServiceListItem.Row) {
+                        // Если строка адаптирована — долгое нажатие показывает прогноз (🧠),
+                        // иначе — обычное контекстное меню Activity.
+                        if (data.isAdapted && data.adaptiveReason.isNotBlank()) {
+                            showAdaptiveDialog(data.adaptiveReason)
+                        } else {
+                            onLongClick(data.item)
+                        }
+                    }
                 }
                 true
             }
         }
 
+        /** Диалог «🧠 Адаптивный прогноз» по долгому нажатию на адаптированную строку. */
+        private fun showAdaptiveDialog(reason: String) {
+            MaterialAlertDialogBuilder(b.root.context)
+                .setTitle("🧠 Адаптивный прогноз")
+                .setMessage(reason)
+                .setPositiveButton("OK", null)
+                .show()
+        }
+
         fun bind(row: ServiceListItem.Row) {
             val item = row.item
             b.name.text = item.name
+
+            // 🧠 Индикатор адаптивного прогноза: показываем только для адаптированных строк.
+            // Сам индикатор не кликабелен — свайпы и лонг-клик остаются на родительской карточке.
+            if (row.isAdapted) {
+                b.tvAdaptiveBadge.isVisible = true
+                b.tvAdaptiveBadge.isClickable = false
+                b.tvAdaptiveBadge.isLongClickable = false
+            } else {
+                b.tvAdaptiveBadge.isVisible = false
+            }
+
             b.subtitle.text = buildString {
                 append("каждые ").append(formatGrouped(item.intervalKm)).append(" км / ")
                 append(item.intervalMonths).append(" мес")

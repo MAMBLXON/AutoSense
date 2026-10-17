@@ -25,10 +25,15 @@ sealed interface ServiceListItem {
     /**
      * Строка списка. [remainingInfo] рассчитывается в MainViewModel (в памяти, без DAO)
      * и передаётся сюда вместе с item — адаптеру не нужно ничего вычислять самому.
+     *
+     * [isAdapted]/[adaptiveReason] — результат адаптивного прогноза (AdaptiveResult),
+     * живёт только в UI-модели строки, НЕ в Room-сущности ServiceItem.
      */
     data class Row(
         val item: ServiceItem,
-        val remainingInfo: ServiceUseCase.RemainingInfo? = null
+        val remainingInfo: ServiceUseCase.RemainingInfo? = null,
+        val isAdapted: Boolean = false,
+        val adaptiveReason: String = ""
     ) : ServiceListItem {
         override val id: Long get() = item.id
     }
