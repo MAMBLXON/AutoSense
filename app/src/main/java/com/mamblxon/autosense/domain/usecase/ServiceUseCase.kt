@@ -61,6 +61,32 @@ class ServiceUseCase {
             else -> ServiceItem.URGENCY_GREEN
         }
     }
+
+    // НОВЫЙ: срочность по АДАПТИРОВАННОМУ интервалу (математика та же, знаменатель — recKm/recMonths)
+    fun computeUrgencyWithAdaptive(
+        item: ServiceItem,
+        recKm: Int,
+        recMonths: Int,
+        nowMillis: Long = System.currentTimeMillis(),
+        yellowThreshold: Float = 0.8f
+    ): Int {
+        val kmProgress = if (recKm <= 0) 0.0
+        else ((item.currentKm - item.lastServiceKm).toDouble() / recKm)
+            .coerceAtLeast(0.0)
+
+        val daysPassed = TimeUnit.MILLISECONDS.toDays(nowMillis - item.lastServiceDateMillis)
+        val monthsPassed = daysPassed / 30.0
+        val monthProgress = if (recMonths <= 0) 0.0
+        else (monthsPassed / recMonths).coerceAtLeast(0.0)
+
+        val progress = maxOf(kmProgress, monthProgress)
+
+        return when {
+            progress >= 1.0 -> ServiceItem.URGENCY_RED
+            progress >= yellowThreshold -> ServiceItem.URGENCY_YELLOW
+            else -> ServiceItem.URGENCY_GREEN
+        }
+    }
     /**
      * Расчёт «остатка» до следующего ТО: сколько км и дней осталось (или на сколько
      * просрочено). Все вычисления — в памяти, структура БД не меняется.
