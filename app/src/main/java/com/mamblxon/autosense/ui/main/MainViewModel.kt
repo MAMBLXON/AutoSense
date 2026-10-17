@@ -6,8 +6,11 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.mamblxon.autosense.data.DefaultServiceRepository
 import com.mamblxon.autosense.domain.model.ServiceItem
+import com.mamblxon.autosense.domain.usecase.AdaptiveIntervalCalculator
+import com.mamblxon.autosense.domain.usecase.AdaptiveResult
 import com.mamblxon.autosense.domain.usecase.ServiceUseCase
 import com.mamblxon.autosense.prefs.AppPrefs
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.Flow
@@ -29,6 +32,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 data class ServiceUiState(
     val listItems: List<ServiceListItem> = emptyList(),
@@ -116,6 +120,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val repo = DefaultServiceRepository.get(app)
     private val useCase = ServiceUseCase()
     private val prefs = AppPrefs(app)
+    private val adaptiveCalc = AdaptiveIntervalCalculator()
 
     private val currentProfileFlow = MutableStateFlow(prefs.currentProfileId)
     private val filterFlow = MutableStateFlow(ServiceFilter.ALL)
@@ -191,10 +196,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     )
                 }
 
-            // Финальный combine из 3 источников.
-            combine(itemsFlow, carNameFlow, settingsFlow) { items, catalogId, settings ->
+            // Финальный combine из 4 источников: items + история (ОДИН getAllRecords, без N+1)
+            // + имя авто + настройки. Источник observeItems не изменён.
+            val recordsFlow: Flow<List<com.mamblxon.autosense.domain.model.ServiceRecord>> =
+                itemsFlow.map {
+                    withContext(Dispatchers.IO) { repo.getAllRecords() }
+                }
+
+            combine(itemsFlow, recordsFlow, carNameFlow, settingsFlow) { items, records, catalogId, settings ->
                 buildState(
                     items = items,
+                    records = records,
                     catalogId = catalogId,
                     filter = settings.filter,
                     query = settings.query,
@@ -226,8 +238,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             emit(emptyList())
         }
 
-    private fun buildState(
+    private suspend fun buildState(
         items: List<ServiceItem>,
+        records: List<com.mamblxon.autosense.domain.model.ServiceRecord>,
         catalogId: String,
         filter: ServiceFilter,
         query: String,
@@ -236,14 +249,36 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         types: Set<ServiceType>,
         sort: SortOrder
     ): ServiceUiState {
+        // ── Адаптивный пайплайн: история ОДИН раз (records), группировка в памяти, без N+1 ──
+        val historyByItem = records.groupBy { it.serviceItemId }
+        val adaptiveOn = prefs.adaptiveModeEnabled
+        val now = System.currentTimeMillis()
+        val threshold = prefs.yellowThreshold
+
+        // Один проход по items: AdaptiveResult + адаптированный item (urgency + recommended-интервалы).
+        val adaptedPairs = items.map { item ->
+            val hist = historyByItem[item.id] ?: emptyList()
+            val ad = if (adaptiveOn) adaptiveCalc.compute(item.intervalKm, item.intervalMonths, hist, now)
+                     else AdaptiveResult(item.intervalKm, item.intervalMonths, false, "Адаптивный режим отключён.")
+            val urg = useCase.computeUrgencyWithAdaptive(item, ad.recommendedKm, ad.recommendedMonths, now, threshold)
+            val adaptedItem = item.copy(
+                urgency = urg,
+                intervalKm = ad.recommendedKm,
+                intervalMonths = ad.recommendedMonths
+            )
+            ad to adaptedItem
+        }
+        val adaptedItems = adaptedPairs.map { it.second }
+
+        // Totals — по адаптированному urgency.
         val totals = Totals(
-            all = items.size,
-            green = items.count { it.urgency == ServiceItem.URGENCY_GREEN },
-            yellow = items.count { it.urgency == ServiceItem.URGENCY_YELLOW },
-            red = items.count { it.urgency == ServiceItem.URGENCY_RED }
+            all = adaptedItems.size,
+            green = adaptedItems.count { it.urgency == ServiceItem.URGENCY_GREEN },
+            yellow = adaptedItems.count { it.urgency == ServiceItem.URGENCY_YELLOW },
+            red = adaptedItems.count { it.urgency == ServiceItem.URGENCY_RED }
         )
 
-        val byFilter = items.filter { filter.matches(it) }
+        val byFilter = adaptedItems.filter { filter.matches(it) }
         val bySearch = if (query.isBlank()) byFilter
         else byFilter.filter { it.name.contains(query, ignoreCase = true) }
         // Фильтр по типу работ (несколько типов = «или»; OTHER = всё, что не попало под другие типы).
@@ -263,13 +298,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             "Двигатель", "Топливная система", "Тормоза",
             "Трансмиссия", "Ходовая", "Электрика", "Прочее"
         )
+        // Остаток до следующего ТО — по адаптированному интервалу (adaptedItems уже с recommended).
+        val remainingByItemId: Map<Long, ServiceUseCase.RemainingInfo> =
+            adaptedItems.associate { it.id to useCase.computeRemaining(it, now) }
+
         val grouped = sorted
             .groupBy { it.category.ifBlank { "Прочее" } }
             .toSortedMap(compareBy { c ->
                 order.indexOf(c).let { if (it == -1) order.size else it }
             })
-
-        val now = System.currentTimeMillis()
 
         val listItems = buildList {
             grouped.forEach { (cat, groupItems) ->
@@ -279,13 +316,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                                 it.urgency == ServiceItem.URGENCY_YELLOW
                     }
                     add(ServiceListItem.Header(cat, groupItems.size, urgent))
-                    // Остаток до следующего ТО считаем в памяти (без DAO и без изменений БД)
-                    // и передаём готовый RemainingInfo прямо в строку списка.
-                    groupItems.forEach {
+                    // Остаток рассчитан в ViewModel по адаптированному интервалу (без DAO, без N+1)
+                    // и передаётся готовый RemainingInfo прямо в строку списка.
+                    groupItems.forEach { rowItem ->
                         add(
                             ServiceListItem.Row(
-                                item = it,
-                                remainingInfo = useCase.computeRemaining(it, now)
+                                item = rowItem,
+                                remainingInfo = remainingByItemId[rowItem.id]
+                                    ?: useCase.computeRemaining(rowItem, now)
                             )
                         )
                     }
