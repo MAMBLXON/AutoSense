@@ -27,11 +27,16 @@ interface ServiceRepository {
 
     // ---------- История ----------
     fun observeHistory(itemId: Long): Flow<List<ServiceRecord>>
-    fun observeRecordsByCar(catalogId: String): Flow<List<ServiceRecordWithName>>
-    fun observeTotalCost(catalogId: String): Flow<Int?>
+    /** История конкретного профиля (не всей модели авто — два профиля одной модели изолированы). */
+    fun observeRecordsByProfile(profileId: Long): Flow<List<ServiceRecordWithName>>
+    /** Сумма расходов по записям конкретного профиля. */
+    fun observeTotalCostByProfile(profileId: Long): Flow<Int?>
     suspend fun getAllRecords(): List<ServiceRecord>
     suspend fun insertRecord(record: ServiceRecord)
     suspend fun updateRecord(record: ServiceRecord)
+
+    /** Атомарно: обновить пункт + добавить запись истории (одна транзакция БД). */
+    suspend fun markServiceDoneAtomically(updatedItem: ServiceItem, record: ServiceRecord)
 
     // ---------- Регламенты (legacy) ----------
     suspend fun loadRegulations(): List<CarRegulation>
@@ -48,6 +53,7 @@ interface ServiceRepository {
     suspend fun countProfiles(): Int
 
     // ---------- Служебные ----------
+    /** Отложить уведомления по пункту (точечный UPDATE одного поля). */
     suspend fun snoozeItem(itemId: Long, untilMillis: Long)
     suspend fun resetAll()
 }

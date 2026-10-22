@@ -2,6 +2,7 @@ package com.mamblxon.autosense.domain.usecase
 
 import com.mamblxon.autosense.data.remote.CarRegulation
 import com.mamblxon.autosense.domain.model.ServiceItem
+import com.mamblxon.autosense.prefs.AppPrefs
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -40,7 +41,7 @@ class ServiceUseCase {
     fun computeUrgency(
         item: ServiceItem,
         nowMillis: Long = System.currentTimeMillis(),
-        yellowThreshold: Float = 0.8f
+        yellowThreshold: Float = AppPrefs.DEFAULT_YELLOW_THRESHOLD
     ): Int {
         // Прогресс по км: если пробег вдруг меньше lastServiceKm
         // (пользователь «откатил» одометр), не уходим в минус.
@@ -68,7 +69,7 @@ class ServiceUseCase {
         recKm: Int,
         recMonths: Int,
         nowMillis: Long = System.currentTimeMillis(),
-        yellowThreshold: Float = 0.8f
+        yellowThreshold: Float = AppPrefs.DEFAULT_YELLOW_THRESHOLD
     ): Int {
         val kmProgress = if (recKm <= 0) 0.0
         else ((item.currentKm - item.lastServiceKm).toDouble() / recKm)
@@ -93,7 +94,8 @@ class ServiceUseCase {
      */
     fun computeRemaining(
         item: ServiceItem,
-        nowMillis: Long = System.currentTimeMillis()
+        nowMillis: Long = System.currentTimeMillis(),
+        yellowThreshold: Float = AppPrefs.DEFAULT_YELLOW_THRESHOLD
     ): RemainingInfo {
         // Остаток по пробегу: до скольки км нужно доехать минус текущий одометр.
         val kmRemaining = if (item.intervalKm > 0)
@@ -110,7 +112,7 @@ class ServiceUseCase {
         return RemainingInfo(
             kmRemaining = kmRemaining,
             daysRemaining = daysRemaining,
-            urgency = computeUrgency(item, nowMillis),
+            urgency = computeUrgency(item, nowMillis, yellowThreshold),
             overdueKm = if (item.intervalKm > 0)
                 (item.currentKm - item.lastServiceKm - item.intervalKm).coerceAtLeast(0)
             else 0,
@@ -208,11 +210,12 @@ class ServiceUseCase {
     fun recalculateAllUrgency(
         items: List<ServiceItem>,
         newCurrentKm: Int,
-        nowMillis: Long = System.currentTimeMillis()
+        nowMillis: Long = System.currentTimeMillis(),
+        yellowThreshold: Float = 0.8f
     ): List<ServiceItem> {
         return items.map { old ->
             val withKm = old.copy(currentKm = newCurrentKm)
-            withKm.copy(urgency = computeUrgency(withKm, nowMillis))
+            withKm.copy(urgency = computeUrgency(withKm, nowMillis, yellowThreshold))
         }
     }
     fun createRecord(

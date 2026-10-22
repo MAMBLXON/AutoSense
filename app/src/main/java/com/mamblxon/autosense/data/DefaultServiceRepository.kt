@@ -13,14 +13,18 @@ import com.mamblxon.autosense.domain.model.CarProfile
 import com.mamblxon.autosense.domain.model.ServiceItem
 import com.mamblxon.autosense.domain.model.ServiceRecord
 import com.mamblxon.autosense.domain.model.ServiceRecordWithName
+import com.mamblxon.autosense.prefs.AppPrefs
+import androidx.room.withTransaction
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 
 class DefaultServiceRepository(
+    private val db: AppDatabase,
     private val serviceDao: ServiceDao,
     private val recordDao: ServiceRecordDao,
     private val carProfileDao: CarProfileDao,
+    private val prefs: AppPrefs,
     private val regulationsLoader: suspend () -> List<CarRegulation>,
     private val catalogLoader: suspend () -> CarCatalog,
     private val clearAllTables: suspend () -> Unit
@@ -58,7 +62,7 @@ class DefaultServiceRepository(
         serviceDao.countByProfile(profileId)
 
     override suspend fun insertItems(items: List<ServiceItem>) =
-        serviceDao.insertAll(items)
+        serviceDao.insertAllAtomic(items)
 
     override suspend fun insertItem(item: ServiceItem): Long =
         serviceDao.insert(item)
@@ -80,17 +84,29 @@ class DefaultServiceRepository(
     override fun observeHistory(itemId: Long): Flow<List<ServiceRecord>> =
         recordDao.getForItem(itemId)
 
-    override fun observeRecordsByCar(catalogId: String): Flow<List<ServiceRecordWithName>> =
-        recordDao.observeRecordsByCar(catalogId)
+    override fun observeRecordsByProfile(profileId: Long): Flow<List<ServiceRecordWithName>> =
+        recordDao.observeRecordsByProfile(profileId)
 
-    override fun observeTotalCost(catalogId: String): Flow<Int?> =
-        recordDao.observeTotalCost(catalogId)
+    override fun observeTotalCostByProfile(profileId: Long): Flow<Int?> =
+        recordDao.observeTotalCostByProfile(profileId)
 
     override suspend fun getAllRecords(): List<ServiceRecord> =
         recordDao.getAllRecords()
 
     override suspend fun insertRecord(record: ServiceRecord) {
         recordDao.insert(record)
+    }
+
+    /**
+     * Атомарный «отметить ТО выполнено»: обновление пункта и добавление записи истории
+     * в одной транзакции — при падении на полпути не остаётся состояние
+     * «срок перенесён, но истории нет» (или наоборот).
+     */
+    override suspend fun markServiceDoneAtomically(updatedItem: ServiceItem, record: ServiceRecord) {
+        db.withTransaction {
+            serviceDao.update(updatedItem)
+            recordDao.insert(record)
+        }
     }
 
     override suspend fun updateRecord(record: ServiceRecord) {
@@ -120,8 +136,19 @@ class DefaultServiceRepository(
     override suspend fun saveProfile(profile: CarProfile): Long =
         carProfileDao.insert(profile)
 
-    override suspend fun deleteProfile(profile: CarProfile) =
-        carProfileDao.delete(profile)
+    /**
+     * Удаление профиля атомарно вместе с его пунктами: либо всё, либо ничего.
+     * С v8 service_items имеет FK profileId → car_profiles ON DELETE CASCADE,
+     * а service_records — FK serviceItemId → service_items ON DELETE CASCADE,
+     * поэтому сироты на уровне БД невозможны; clearByProfile оставлен как
+     * страховка для баз до миграции 7→8.
+     */
+    override suspend fun deleteProfile(profile: CarProfile) {
+        db.withTransaction {
+            serviceDao.clearByProfile(profile.id)
+            carProfileDao.delete(profile)
+        }
+    }
 
     override suspend fun countProfiles(): Int =
         carProfileDao.count()
@@ -129,12 +156,16 @@ class DefaultServiceRepository(
     // ---------- Служебные ----------
 
     override suspend fun snoozeItem(itemId: Long, untilMillis: Long) {
-        val item = serviceDao.getById(itemId) ?: return
-        serviceDao.update(item.copy(snoozedUntilMillis = untilMillis))
+        // Точечный UPDATE вместо read-modify-write всего ServiceItem:
+        // параллельное изменение других полей (snoozedUntilMillis не перезапишется устаревшим снимком).
+        serviceDao.setSnoozedUntil(itemId, untilMillis)
     }
 
     override suspend fun resetAll() {
         clearAllTables()
+        //Prefs-указатель на удалённый профиль быть не должен: иначе MainActivity
+        //не уйдёт на онбординг, а будет крутить пустой список.
+        prefs.clearCurrentProfile()
     }
 
     companion object {
@@ -150,9 +181,11 @@ class DefaultServiceRepository(
         private fun build(appContext: Context): ServiceRepository {
             val db = AppDatabase.get(appContext)
             return DefaultServiceRepository(
+                db = db,
                 serviceDao = db.serviceDao(),
                 recordDao = db.serviceRecordDao(),
                 carProfileDao = db.carProfileDao(),
+                prefs = AppPrefs(appContext),
                 regulationsLoader = {
                     withContext(Dispatchers.IO) {
                         RegulationsLoader.loadRegulations(appContext)

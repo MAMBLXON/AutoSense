@@ -5,6 +5,7 @@ import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Update
 import com.mamblxon.autosense.domain.model.ServiceItem
 import kotlinx.coroutines.flow.Flow
@@ -15,8 +16,14 @@ interface ServiceDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(item: ServiceItem): Long
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertAll(items: List<ServiceItem>)
+    /**
+     * Атомарная вставка списка пунктов (генерация из каталога / онбординг):
+     * либо все строки, либо ничего — без частичного набора при падении в середине.
+     */
+    @Transaction
+    suspend fun insertAllAtomic(items: List<ServiceItem>) {
+        items.forEach { insert(it) }
+    }
 
     @Update
     suspend fun update(item: ServiceItem)
@@ -37,8 +44,7 @@ interface ServiceDao {
      * Поиск по названию ТО (title/name) в рамках профиля.
      * Пустая строка запроса -> все записи (LIKE '%%' совпадает с любым названием).
      *  • LOWER(...) — регистронезависимый поиск («масло» найдёт «Масло»; для кириллицы
-     *    SQLite lower() работает побайтово только для ASCII, но UI-фильтр в ViewModel
-     *    использует Kotlin contains(ignoreCase = true), который корректен для кириллицы);
+     *    SQLite lower()/LIKE не делают раскладки — см. примечание в отчёте);
      *  • ESCAPE '\' — спецсимволы LIKE (% и _) экранируются вызывающей стороной,
      *    поэтому пользовательский ввод не может изменить семантику запроса
      *    (значения передаются как параметр — классических SQL-инъекций здесь нет).
@@ -58,4 +64,8 @@ interface ServiceDao {
 
     @Query("DELETE FROM service_items WHERE profileId = :profileId")
     suspend fun clearByProfile(profileId: Long)
+
+    /** Точечное обновление snooze без read-modify-write всего объекта (см. репозиторий). */
+    @Query("UPDATE service_items SET snoozedUntilMillis = :until WHERE id = :id")
+    suspend fun setSnoozedUntil(id: Long, until: Long)
 }

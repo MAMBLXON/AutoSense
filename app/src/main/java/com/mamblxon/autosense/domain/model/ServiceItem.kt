@@ -1,14 +1,24 @@
 package com.mamblxon.autosense.domain.model
 
 import androidx.room.Entity
+import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
 @Entity(
     tableName = "service_items",
     indices = [
-        Index(value = ["profileId"]),
+        // Один пункт с таким названием — на профиль (уникальность проверяется и в миграции 7→8)
+        Index(value = ["profileId", "name"], unique = true),
         Index(value = ["car"])
+    ],
+    foreignKeys = [
+        ForeignKey(
+            entity = CarProfile::class,
+            parentColumns = ["id"],
+            childColumns = ["profileId"],
+            onDelete = ForeignKey.CASCADE
+        )
     ]
 )
 data class ServiceItem(

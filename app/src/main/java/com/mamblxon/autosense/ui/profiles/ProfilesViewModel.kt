@@ -40,6 +40,12 @@ class ProfilesViewModel(app: Application) : AndroidViewModel(app) {
                 val carMap = catalog.cars.associateBy { it.id }
 
                 repo.observeProfiles().collect { profiles ->
+                    // Само-восстановление указателя: если prefs.currentProfileId ссылается
+                    // на удалённый профиль (например, процесс убит между deleteProfile и
+                    // записью prefs), сбрасываем его — MainActivity увидит 0 и уйдёт на онбординг.
+                    if (prefs.currentProfileId > 0L && profiles.none { it.id == prefs.currentProfileId }) {
+                        prefs.currentProfileId = profiles.firstOrNull()?.id ?: 0L
+                    }
                     val currentId = prefs.currentProfileId
                     val displays = profiles.map { p ->
                         val model = carMap[p.catalogId]
@@ -76,6 +82,9 @@ class ProfilesViewModel(app: Application) : AndroidViewModel(app) {
     fun delete(profile: CarProfile, onDone: (needRestart: Boolean) -> Unit) {
         viewModelScope.launch {
             val wasCurrent = profile.id == prefs.currentProfileId
+            // Явная очистка пунктов профиля (records уходят FK-cascade от items):
+            // гарантия отсутствия сирот даже если каскад недоступен (PRAGMA игнорируется
+            // внутри транзакций). Теперь обе операции идут в одной @Transaction репозитория.
             repo.clearItems(profile.id)
             repo.deleteProfile(profile)
 

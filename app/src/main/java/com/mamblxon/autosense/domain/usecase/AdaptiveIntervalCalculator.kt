@@ -48,11 +48,11 @@ class AdaptiveIntervalCalculator {
             val month = cal.get(Calendar.MONTH) + 1
             val winter = month == 11 || month == 12 || month == 1 || month == 2 || month == 3
             if (winter) {
-                val winterMonths = (baseMonths * 0.85f).toInt().coerceAtLeast(1)
-                if (winterMonths != baseMonths) {
-                    recMonths = winterMonths
-                    adapted = true
-                    reasons.add("Зимний период: временной интервал сокращён до $recMonths мес.")
+                // Сезонность — только текстовая подсказка: recommendedMonths НЕ меняется,
+                // иначе 1 ноября у всех пунктов с месячным интервалом цвет меняется сам.
+                val winterHint = (baseMonths * 0.85f).toInt().coerceAtLeast(1)
+                if (winterHint != baseMonths) {
+                    reasons.add("Зимний период: рекомендуется сократить временной интервал до $winterHint мес (подсказка, расчёт не меняет).")
                 }
             }
         }

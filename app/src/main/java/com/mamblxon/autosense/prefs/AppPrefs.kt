@@ -11,6 +11,9 @@ class AppPrefs(context: Context) {
         get() = sp.getLong(KEY_CURRENT_PROFILE_ID, 0L)
         set(value) { sp.edit().putLong(KEY_CURRENT_PROFILE_ID, value).apply() }
 
+    /** Убирает указатель на активный профиль (после удаления последнего профиля / resetAll). */
+    fun clearCurrentProfile() { currentProfileId = 0L }
+
     var yellowThreshold: Float
         get() = sp.getFloat(KEY_YELLOW_THRESHOLD, DEFAULT_YELLOW_THRESHOLD)
         set(value) { sp.edit().putFloat(KEY_YELLOW_THRESHOLD, value.coerceIn(0.5f, 0.99f)).apply() }

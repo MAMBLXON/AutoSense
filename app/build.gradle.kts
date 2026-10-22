@@ -95,6 +95,12 @@ android {
     buildFeatures {
         viewBinding = true
     }
+
+    // Room: экспорт схем БД (обязателен для миграционных тестов и контроля схемы в git)
+    ksp {
+        arg("room.schemaLocation", "$projectDir/schemas")
+        arg("room.incremental", "true")
+    }
 }
 
 dependencies {

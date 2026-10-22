@@ -33,17 +33,16 @@ class AllHistoryViewModel(app: Application) : AndroidViewModel(app) {
             if (profileId <= 0L) return@launch
 
             val profile = repo.getProfileById(profileId) ?: return@launch
-            val catalogId = profile.catalogId
 
             combine(
-                repo.observeRecordsByCar(catalogId),
-                repo.observeTotalCost(catalogId)
+                repo.observeRecordsByProfile(profileId),
+                repo.observeTotalCostByProfile(profileId)
             ) { records, total ->
                 AllHistoryUiState(
                     records = records,
                     totalCost = total ?: 0,
                     count = records.size,
-                    car = catalogId
+                    car = profile.catalogId
                 )
             }.collect { _state.value = it }
         }
