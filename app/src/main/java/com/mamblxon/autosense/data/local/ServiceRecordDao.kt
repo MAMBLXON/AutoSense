@@ -28,17 +28,17 @@ interface ServiceRecordDao {
                i.name AS serviceName, i.category AS serviceCategory
         FROM service_records r
         INNER JOIN service_items i ON i.id = r.serviceItemId
-        WHERE i.car = :catalogId
+        WHERE i.profileId = :profileId
         ORDER BY r.dateMillis DESC
     """)
-    fun observeRecordsByCar(catalogId: String): Flow<List<ServiceRecordWithName>>
+    fun observeRecordsByProfile(profileId: Long): Flow<List<ServiceRecordWithName>>
 
     @Query("""
         SELECT SUM(r.cost) FROM service_records r
         INNER JOIN service_items i ON i.id = r.serviceItemId
-        WHERE i.car = :catalogId
+        WHERE i.profileId = :profileId
     """)
-    fun observeTotalCost(catalogId: String): Flow<Int?>
+    fun observeTotalCostByProfile(profileId: Long): Flow<Int?>
 
     @Query("SELECT * FROM service_records ORDER BY dateMillis DESC")
     suspend fun getAllRecords(): List<ServiceRecord>

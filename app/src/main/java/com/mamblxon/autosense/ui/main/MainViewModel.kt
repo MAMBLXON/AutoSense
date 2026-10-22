@@ -144,6 +144,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val seedMutex = Mutex()
 
+    /**
+     * День, на который уже был выполнен пересчёт срочности (epoch-дни).
+     * Нужен, чтобы при возврате в приложение на другие сутки urgency не «залипал»
+     * на вчерашнем значении (срок по месяцам мог выйти, а в БД всё ещё GREEN).
+     */
+    private var lastRecalcDay: Long = -1L
+
     @OptIn(FlowPreview::class)
     private val debouncedQuery = searchQueryFlow
         .debounce(300L)
@@ -238,6 +245,32 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             emit(emptyList())
         }
 
+    /**
+     * Единая точка пересчёта срочности (источник истины — расчёт на лету,
+     * полю urgency в БД при показе не доверяем): один путь и для списка/чипов,
+     * и для Worker. При prefs.adaptiveModeEnabled считается по адаптированным
+     * интервалам (computeUrgencyWithAdaptive), порог жёлтого — из prefs.yellowThreshold.
+     * История передаётся одним списком getAllRecords() и группируется здесь (без N+1).
+     */
+    private fun buildAdaptivePairs(
+        items: List<ServiceItem>,
+        historyByItem: Map<Long, List<com.mamblxon.autosense.domain.model.ServiceRecord>>,
+        adaptiveOn: Boolean,
+        threshold: Float,
+        now: Long
+    ): List<Pair<AdaptiveResult, ServiceItem>> = items.map { item ->
+        val hist = historyByItem[item.id] ?: emptyList()
+        val ad = if (adaptiveOn) adaptiveCalc.compute(item.intervalKm, item.intervalMonths, hist, now)
+                 else AdaptiveResult(item.intervalKm, item.intervalMonths, false, "Адаптивный режим отключён.")
+        val urg = useCase.computeUrgencyWithAdaptive(item, ad.recommendedKm, ad.recommendedMonths, now, threshold)
+        val adaptedItem = item.copy(
+            urgency = urg,
+            intervalKm = ad.recommendedKm,
+            intervalMonths = ad.recommendedMonths
+        )
+        ad to adaptedItem
+    }
+
     private suspend fun buildState(
         items: List<ServiceItem>,
         records: List<com.mamblxon.autosense.domain.model.ServiceRecord>,
@@ -256,18 +289,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val threshold = prefs.yellowThreshold
 
         // Один проход по items: AdaptiveResult + адаптированный item (urgency + recommended-интервалы).
-        val adaptedPairs = items.map { item ->
-            val hist = historyByItem[item.id] ?: emptyList()
-            val ad = if (adaptiveOn) adaptiveCalc.compute(item.intervalKm, item.intervalMonths, hist, now)
-                     else AdaptiveResult(item.intervalKm, item.intervalMonths, false, "Адаптивный режим отключён.")
-            val urg = useCase.computeUrgencyWithAdaptive(item, ad.recommendedKm, ad.recommendedMonths, now, threshold)
-            val adaptedItem = item.copy(
-                urgency = urg,
-                intervalKm = ad.recommendedKm,
-                intervalMonths = ad.recommendedMonths
-            )
-            ad to adaptedItem
-        }
+        val adaptedPairs = buildAdaptivePairs(items, historyByItem, adaptiveOn, threshold, now)
         val adaptedItems = adaptedPairs.map { it.second }
         // Карта адаптивных результатов по id — для проброса 🧠-бейджа и причины в строку списка.
         val adaptiveById: Map<Long, AdaptiveResult> =
@@ -417,8 +439,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             when (event) {
                 is UiEvent.MarkDone -> dbOp("Не удалось сохранить запись") {
                     val updated = useCase.markServiceDone(event.item, event.currentKm)
-                    repo.updateItem(updated)
-                    repo.insertRecord(
+                    repo.markServiceDoneAtomically(
+                        updated,
                         useCase.createRecord(
                             itemId = updated.id,
                             km = event.currentKm,
@@ -451,7 +473,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 is UiEvent.DeleteItem -> deleteItem(event.item)
 
                 is UiEvent.RestoreItem -> dbOp("Не удалось восстановить запись") {
-                    repo.insertItem(event.item)
+                    // Восстановление удалённого пункта (undo из Snackbar) — атомарно:
+                    // либо строка вернулась целиком, либо нет; без полувставленных REPLACE-дубликатов.
+                    repo.insertItems(listOf(event.item))
                     _messages.tryEmit(UiMessage.Info("Запись восстановлена"))
                 }
 
@@ -531,6 +555,39 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun reloadForCurrentProfile() {
+        // Пересчёт «на другие сутки»: MainActivity дёргает этот метод из onResume
+        // (т.е. на ON_START). Срочность считается на лету в buildState, но без
+        // изменения данных Room-Flow не эмится, и state залипал бы на вчерашнем now.
+        // При смене дня принудительно обновляем строки в БД (только urgency), что
+        // вызывает эмиссию потока и полный пересчёт списка/чипов.
+        val today = System.currentTimeMillis() / ServiceUseCase.DAY_MILLIS
+        if (today != lastRecalcDay) {
+            lastRecalcDay = today
+            viewModelScope.launch {
+                try {
+                    val profileId = prefs.currentProfileId
+                    if (profileId > 0L) {
+                        val items = repo.getItemsOnce(profileId)
+                        if (items.isNotEmpty()) {
+                            val historyByItem = repo.getAllRecords().groupBy { it.serviceItemId }
+                            val pairs = buildAdaptivePairs(
+                                items,
+                                historyByItem,
+                                adaptiveOn = prefs.adaptiveModeEnabled,
+                                threshold = prefs.yellowThreshold,
+                                now = System.currentTimeMillis()
+                            )
+                            val recalculated = items.mapIndexed { i, old ->
+                                old.copy(urgency = pairs[i].second.urgency)
+                            }
+                            if (recalculated != items) repo.updateItems(recalculated)
+                        }
+                    }
+                } catch (t: Throwable) {
+                    Log.e("AutoSense", "Daily urgency refresh failed", t)
+                }
+            }
+        }
         currentProfileFlow.value = prefs.currentProfileId
         loadingFlow.value = true
         viewModelScope.launch {

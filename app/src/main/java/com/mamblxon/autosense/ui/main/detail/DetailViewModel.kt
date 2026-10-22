@@ -87,9 +87,8 @@ class DetailViewModel(
                     prefs.saveKnownKm(prefs.currentProfileId, km)
                 }
                 val updatedItem = useCase.markServiceDone(item, km)
-                repo.updateItem(updatedItem)
                 val record = useCase.createRecord(item.id, km, note = note, cost = cost)
-                repo.insertRecord(record)
+                repo.markServiceDoneAtomically(updatedItem, record)
                 _messages.emit(UiMessage.Info("ТО отмечено"))
                 loadData()
             } catch (t: Throwable) {
