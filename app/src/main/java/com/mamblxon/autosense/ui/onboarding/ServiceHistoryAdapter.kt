@@ -23,20 +23,19 @@ class ServiceHistoryAdapter(
     }
 
     override fun onBindViewHolder(holder: VH, position: Int) {
-        holder.bind(getItem(position), position)
+        holder.bind(getItem(position))
     }
 
     inner class VH(private val b: ItemServiceHistoryBinding) : RecyclerView.ViewHolder(b.root) {
 
-        private var boundIndex: Int = -1
-
         private val watcher = object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, st: Int, c: Int, a: Int) = Unit
-            override fun onTextChanged(s: CharSequence?, st: Int, b: Int, c: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, st: Int, before: Int, count: Int) = Unit
             override fun afterTextChanged(s: Editable?) {
-                if (boundIndex < 0) return
-                val km = s?.toString()?.toIntOrNull() ?: 0
-                onKm(boundIndex, km)
+                val pos = bindingAdapterPosition
+                if (pos == RecyclerView.NO_POSITION) return
+                val km = s?.toString()?.trim()?.toIntOrNull() ?: 0
+                onKm(pos, km)
             }
         }
 
@@ -44,13 +43,13 @@ class ServiceHistoryAdapter(
             b.etKm.addTextChangedListener(watcher)
 
             b.switchChanged.setOnCheckedChangeListener { _, checked ->
-                if (boundIndex >= 0) onChanged(boundIndex, checked)
+                val pos = bindingAdapterPosition
+                if (pos == RecyclerView.NO_POSITION) return@setOnCheckedChangeListener
+                onChanged(pos, checked)
             }
         }
 
-        fun bind(row: ServiceRow, index: Int) {
-            boundIndex = index
-
+        fun bind(row: ServiceRow) {
             b.tvName.text = row.spec.name
             b.tvCategory.text = buildString {
                 append(row.spec.category)
@@ -61,16 +60,16 @@ class ServiceHistoryAdapter(
                 append(" мес")
             }
 
-            // Switch без петли
             b.switchChanged.setOnCheckedChangeListener(null)
             b.switchChanged.isChecked = row.state.changed
             b.switchChanged.setOnCheckedChangeListener { _, checked ->
-                if (boundIndex >= 0) onChanged(boundIndex, checked)
+                val pos = bindingAdapterPosition
+                if (pos == RecyclerView.NO_POSITION) return@setOnCheckedChangeListener
+                onChanged(pos, checked)
             }
 
             b.tilKm.isVisible = row.state.changed
 
-            // Text без петли — снимаем watcher, если текст не тот
             val wanted = row.state.lastKm.toString()
             b.etKm.removeTextChangedListener(watcher)
             if (b.etKm.text?.toString() != wanted) {
